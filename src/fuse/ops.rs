@@ -11,7 +11,7 @@ use std::{
 use crate::{proto, util::OutputChain, Errno, Ino, TimeToLive};
 
 use super::{
-    fs::{Fuse, Inode, Tape},
+    fs::{Fuse, Inode},
     io::{AccessFlags, Entry, EntryType, FsInfo},
     session, Done, Operation, Reply, Request,
 };

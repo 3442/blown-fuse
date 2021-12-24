@@ -65,7 +65,7 @@ impl<'a> OutputChain<'a> {
         }
     }
 
-    pub fn iter(&self) -> OutputChainIter {
+    pub fn iter(&self) -> OutputChainIter<'_> {
         OutputChainIter(Some(&self))
     }
 }

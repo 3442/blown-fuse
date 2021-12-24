@@ -655,7 +655,7 @@ impl Request<'_> {
         self.header
     }
 
-    pub fn body(&self) -> &RequestBody {
+    pub fn body(&self) -> &RequestBody<'_> {
         &self.body
     }
 }

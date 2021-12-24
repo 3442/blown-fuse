@@ -2,7 +2,7 @@
 name = "blown-fuse"
 version = "0.1.0"
 authors = ["Alejandro Soto <alejandro@34project.org>"]
-edition = "2018"
+edition = "2021"
 description = "Filesystem in Userspace"
 
 [features]
