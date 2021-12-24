@@ -322,7 +322,7 @@ impl Fuse for Ext2 {
                     "(empty)".into()
                 }
             })
-            .unwrap_or("(bad)".into());
+            .unwrap_or_else(|| "(bad)".into());
 
         log::info!("UUID: {}", Uuid::from_bytes(self.superblock.s_uuid));
         log::info!("Label: {}", label.escape_debug());
@@ -476,10 +476,6 @@ impl blown_fuse::fs::Inode for Inode {
     }
 }
 
-fn early_error<T, E: From<Errno>>(_: ()) -> Result<T, E> {
-    Err(Errno::EINVAL.into())
-}
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let matches = App::new("ext2")
         .about("read-only ext2 FUSE driver")
@@ -535,16 +531,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let superblock = superblock.and_then(|superblock| try_from_bytes(superblock).ok());
     let superblock: &'static Superblock = match superblock {
         Some(superblock) => superblock,
-        None => return early_error(log::error!("Bad superblock")),
+        None => {
+            log::error!("Bad superblock");
+            return Err(Errno::EINVAL.into());
+        }
     };
 
     if superblock.s_magic != 0xef53 {
-        return early_error(log::error!("Bad magic"));
+        log::error!("Bad magic");
+        return Err(Errno::EINVAL.into());
     }
 
     let (major, minor) = (superblock.s_rev_level, superblock.s_minor_rev_level);
     if (major, minor) != (1, 0) {
-        return early_error(log::error!("Unsupported revision: {}.{}", major, minor));
+        log::error!("Unsupported revision: {}.{}", major, minor);
+        return Err(Errno::EINVAL.into());
     }
 
     let fs = Ext2 {

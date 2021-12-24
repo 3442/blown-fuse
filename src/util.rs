@@ -61,12 +61,12 @@ impl<'a> OutputChain<'a> {
     pub fn preceded(&'a self, segments: &'a [&'a [u8]]) -> Self {
         OutputChain {
             segments,
-            then: Some(&self),
+            then: Some(self),
         }
     }
 
     pub fn iter(&self) -> OutputChainIter<'_> {
-        OutputChainIter(Some(&self))
+        OutputChainIter(Some(self))
     }
 }
 

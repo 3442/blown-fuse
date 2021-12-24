@@ -68,7 +68,7 @@ impl<'o, Fs: Fuse, O: Operation<'o, Fs>> Reply<'o, Fs, O> {
         F: Future<Output = T>,
     {
         tokio::pin!(f);
-        let mut rx = session::interrupt_rx(&self.session);
+        let mut rx = session::interrupt_rx(self.session);
 
         use Interruptible::*;
         loop {
@@ -97,7 +97,7 @@ impl<'o, Fs: Fuse, O: Operation<'o, Fs>> Reply<'o, Fs, O> {
         let errno = errno as i32;
         O::consume_errno(errno, &mut self.tail);
 
-        Done::from_result(session::fail(&self.session, self.unique, errno))
+        Done::from_result(session::fail(self.session, self.unique, errno))
     }
 
     pub fn not_implemented(self) -> Done<'o> {

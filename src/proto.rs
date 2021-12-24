@@ -4,7 +4,7 @@ use bitflags::bitflags;
 use bytemuck::{self, Pod};
 use bytemuck_derive::{Pod, Zeroable};
 use num_enum::TryFromPrimitive;
-use std::{convert::TryFrom, ffi::CStr, fmt, mem::replace};
+use std::{convert::TryFrom, ffi::CStr, fmt, mem};
 
 use crate::{util::display_or, FuseError, FuseResult};
 
@@ -778,16 +778,9 @@ impl<'a> TryFrom<&'a [u8]> for Request<'a> {
                         return Err(BadLength);
                     }
 
-                    RequestBody::$op { prefix, data: replace(&mut bytes, &[]) }
+                    RequestBody::$op { prefix, data: mem::take(&mut bytes) }
                 }
             };
-
-            /*($op:ident, $($field:ident),+) => {
-                {
-                    $($field!($op, $field));+;
-                    RequestBody::$op { $($field),+ }
-                }
-            };*/
 
             ($op:ident, $($fields:ident),+) => {
                 {
@@ -841,7 +834,7 @@ impl<'a> TryFrom<&'a [u8]> for Request<'a> {
             BatchForget => {
                 prefix!(BatchForget, prefix);
 
-                let forgets = replace(&mut bytes, &[]);
+                let forgets = mem::take(&mut bytes);
                 let forgets = bytemuck::try_cast_slice(forgets).map_err(|_| Truncated)?;
 
                 if prefix.count as usize != forgets.len() {

@@ -35,14 +35,6 @@ pub fn ok<Fs: Fuse>(session: &Session<Fs>, unique: u64, output: OutputChain<'_>)
     session.send(unique, 0, output)
 }
 
-pub fn notify<Fs: Fuse>(
-    session: &Session<Fs>,
-    op: proto::NotifyCode,
-    output: OutputChain<'_>,
-) -> FuseResult<()> {
-    session.send(0, op as i32, output)
-}
-
 pub fn fail<Fs: Fuse>(session: &Session<Fs>, unique: u64, mut errno: i32) -> FuseResult<()> {
     if errno <= 0 {
         log::warn!(
@@ -164,7 +156,7 @@ impl<Fs: Fuse> Session<Fs> {
 
             Ordering::Greater => {
                 let tail = [bytes_of(&proto::MAJOR_VERSION)];
-                ok(&self, unique, OutputChain::tail(&tail))?;
+                ok(self, unique, OutputChain::tail(&tail))?;
 
                 return Ok(Handshake::Restart);
             }
@@ -183,14 +175,14 @@ impl<Fs: Fuse> Session<Fs> {
                 major = proto::MAJOR_VERSION
             );
 
-            fail(&self, unique, Errno::EPROTONOSUPPORT as i32)?;
+            fail(self, unique, Errno::EPROTONOSUPPORT as i32)?;
             return Err(ProtocolInit);
         }
 
         let root = {
             let mut init_result = Err(0);
             let reply = Reply {
-                session: &self,
+                session: self,
                 unique,
                 tail: &mut init_result,
             };
@@ -232,12 +224,12 @@ impl<Fs: Fuse> Session<Fs> {
         };
 
         let tail = [bytes_of(&init_out)];
-        ok(&self, unique, OutputChain::tail(&tail))?;
+        ok(self, unique, OutputChain::tail(&tail))?;
 
         Ok(Handshake::Done)
     }
 
-    async fn dispatch(self: &Arc<Self>, request: &mut Incoming<Fs>) -> FuseResult<()> {
+    async fn dispatch(self: &Arc<Self>, request: &mut Incoming) -> FuseResult<()> {
         let request: proto::Request<'_> = request.buffer.data().try_into()?;
         let header = request.header();
         let InHeader { unique, ino, .. } = *header;
@@ -281,7 +273,7 @@ impl<Fs: Fuse> Session<Fs> {
             Interrupt(body) => {
                 //TODO: Don't reply with EAGAIN if the interrupt is successful
                 let _ = self.interrupt_tx.send(body.unique);
-                return fail(&self, unique, Errno::EAGAIN as i32);
+                return fail(self, unique, Errno::EAGAIN as i32);
             }
 
             Destroy => {
@@ -313,7 +305,7 @@ impl<Fs: Fuse> Session<Fs> {
                         ino
                     );
 
-                    return fail(&self, unique, Errno::ENOANO as i32);
+                    return fail(self, unique, Errno::ENOANO as i32);
                 }
             };
 
@@ -331,7 +323,7 @@ impl<Fs: Fuse> Session<Fs> {
                         attr: attrs,
                     };
 
-                    return ok(&self, unique, OutputChain::tail(&[bytes_of(&out)]));
+                    return ok(self, unique, OutputChain::tail(&[bytes_of(&out)]));
                 }
 
                 Access(body) => {
@@ -363,7 +355,7 @@ impl<Fs: Fuse> Session<Fs> {
             Opendir(body) => inode_op!(opendir, *body),
             Readdir(body) => inode_op!(readdir, *body),
 
-            _ => return fail(&self, unique, Errno::ENOSYS as i32),
+            _ => return fail(self, unique, Errno::ENOSYS as i32),
         };
 
         done.into_result()
@@ -398,7 +390,7 @@ impl<Fs: Fuse> Session<Fs> {
         }
     }
 
-    async fn receive(self: &Arc<Self>) -> std::io::Result<Incoming<Fs>> {
+    async fn receive(self: &Arc<Self>) -> std::io::Result<Incoming> {
         use InputBufferStorage::*;
 
         let permit = Arc::clone(&self.input_semaphore)
@@ -407,7 +399,6 @@ impl<Fs: Fuse> Session<Fs> {
             .unwrap();
 
         let mut incoming = Incoming {
-            session: Arc::clone(self),
             buffer: InputBuffer {
                 bytes: 0,
                 data: Sbo(SboStorage([0; SBO_SIZE])),
@@ -452,17 +443,15 @@ impl<Fs: Fuse> Session<Fs> {
     }
 
     fn send(&self, unique: u64, error: i32, output: OutputChain<'_>) -> FuseResult<()> {
-        let length = std::mem::size_of::<proto::OutHeader>();
-        let length = length
-            + output
-                .iter()
-                .map(<[_]>::iter)
-                .flatten()
-                .copied()
-                .map(<[_]>::len)
-                .sum::<usize>();
+        let after_header: usize = output
+            .iter()
+            .map(<[_]>::iter)
+            .flatten()
+            .copied()
+            .map(<[_]>::len)
+            .sum();
 
-        let length = length.try_into().unwrap();
+        let length = (std::mem::size_of::<proto::OutHeader>() + after_header) as _;
         let header = proto::OutHeader {
             len: length,
             error,
@@ -537,8 +526,7 @@ enum Handshake {
     Restart,
 }
 
-struct Incoming<Fs: Fuse> {
-    session: Arc<Session<Fs>>,
+struct Incoming {
     buffer: InputBuffer,
 }
 

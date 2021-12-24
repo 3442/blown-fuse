@@ -55,7 +55,7 @@ op! {
         /// be cached by the client for up to the given TTL.
         pub fn found(self, entry: &Fs::Farc, ttl: TimeToLive) -> Done<'o> {
             let (attrs, attrs_ttl) = <Fs as Fuse>::Inode::attrs(entry);
-            session::unveil(&self.session, entry);
+            session::unveil(self.session, entry);
 
             self.single(&make_entry(
                 (<Fs as Fuse>::Inode::ino(entry), ttl),
@@ -103,15 +103,10 @@ op! {
     },
 
     Reply {
-        /// The iinode may now be accessed.
+        /// The inode may now be accessed.
         pub fn ok(self) -> Done<'o> {
             self.ok_with_handle(0)
         }
-
-        /*pub fn tape<R: Tape<Fuse = Fs>>(self, reel: R) -> Done<'o> {
-            let (ino, _) = self.tail;
-            self.ok_with_handle(session::allocate_handle(&self.session, ino, reel))
-        }*/
 
         fn ok_with_handle(self, handle: u64) -> Done<'o> {
             let (_, flags) = self.tail;
@@ -342,7 +337,7 @@ impl<'o, Fs: Fuse, O: Operation<'o, Fs>> Reply<'o, Fs, O> {
     }
 
     fn chain(self, chain: OutputChain<'_>) -> Done<'o> {
-        Done::from_result(session::ok(&self.session, self.unique, chain))
+        Done::from_result(session::ok(self.session, self.unique, chain))
     }
 }
 
