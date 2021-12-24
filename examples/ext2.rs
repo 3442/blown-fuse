@@ -476,11 +476,8 @@ impl blown_fuse::fs::Inode for Inode {
     }
 }
 
-fn early_error<T, E>(_: ()) -> Result<T, E>
-where
-    nix::Error: Into<E>,
-{
-    Err(nix::Error::Sys(Errno::EINVAL).into())
+fn early_error<T, E: From<Errno>>(_: ()) -> Result<T, E> {
+    Err(Errno::EINVAL.into())
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

@@ -1,5 +1,6 @@
 use std::{
     ffi::{OsStr, OsString},
+    io,
     os::unix::{
         ffi::OsStrExt,
         io::{AsRawFd, IntoRawFd, RawFd},
@@ -17,7 +18,7 @@ use nix::{
 use quick_error::quick_error;
 
 use super::Start;
-use crate::util::{from_nix_error, DumbFd};
+use crate::util::DumbFd;
 
 quick_error! {
     #[derive(Debug)]
@@ -131,7 +132,7 @@ where
             Some(&mut buffer),
             MsgFlags::empty(),
         )
-        .map_err(from_nix_error)?;
+        .map_err(io::Error::from)?;
 
         let session_fd = match message.cmsgs().next() {
             Some(ControlMessageOwned::ScmRights(fds)) => fds.into_iter().next(),

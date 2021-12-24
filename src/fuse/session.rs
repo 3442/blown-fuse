@@ -1,7 +1,8 @@
 use std::{
     collections::{hash_map, HashMap},
     convert::TryInto,
-    os::unix::io::IntoRawFd,
+    io,
+    os::unix::io::{IntoRawFd, RawFd},
     sync::{Arc, Mutex},
 };
 
@@ -21,7 +22,7 @@ use smallvec::SmallVec;
 
 use crate::{
     proto::{self, InHeader},
-    util::{display_or, from_nix_error, OutputChain},
+    util::{display_or, OutputChain},
     Errno, FuseError, FuseResult, Ino,
 };
 
@@ -140,7 +141,7 @@ impl<Fs: Fuse> Session<Fs> {
                 IoVec::from_mut_slice(large_buffer),
             ];
 
-            let bytes = readv(*self.session_fd.get_ref(), &mut io_vecs).map_err(from_nix_error)?;
+            let bytes = readv(*self.session_fd.get_ref(), &mut io_vecs).map_err(io::Error::from)?;
             InputBuffer { bytes, data }
         };
 
@@ -429,7 +430,8 @@ impl<Fs: Fuse> Session<Fs> {
                 IoVec::from_mut_slice(&mut large_buffer[SBO_SIZE..]),
             ];
 
-            match readable.try_io(|fd| readv(*fd.get_ref(), &mut io_vecs).map_err(from_nix_error)) {
+            let mut read = |fd: &AsyncFd<RawFd>| readv(*fd.get_ref(), &mut io_vecs);
+            match readable.try_io(|fd| read(fd).map_err(io::Error::from)) {
                 Ok(Ok(bytes)) => {
                     if bytes > SBO_SIZE {
                         (&mut large_buffer[..SBO_SIZE]).copy_from_slice(sbo);
@@ -479,7 +481,7 @@ impl<Fs: Fuse> Session<Fs> {
             .map(IoVec::from_slice)
             .collect();
 
-        let written = writev(*self.session_fd.get_ref(), &buffers).map_err(from_nix_error)?;
+        let written = writev(*self.session_fd.get_ref(), &buffers).map_err(io::Error::from)?;
         if written == length as usize {
             Ok(())
         } else {

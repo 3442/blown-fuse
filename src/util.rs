@@ -3,7 +3,7 @@ use std::{
     os::unix::io::{IntoRawFd, RawFd},
 };
 
-use nix::{self, errno::Errno, unistd::close};
+use nix::unistd::close;
 use quick_error::quick_error;
 
 quick_error! {
@@ -76,18 +76,6 @@ impl<'a> Iterator for OutputChainIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         let next = self.0.and_then(|chain| chain.then);
         std::mem::replace(&mut self.0, next).map(|chain| chain.segments)
-    }
-}
-
-pub fn from_nix_error(error: nix::Error) -> std::io::Error {
-    use nix::Error::*;
-    let from_raw = |code| std::io::Error::from_raw_os_error(code as i32);
-
-    match error {
-        Sys(errno) => errno.into(),
-        InvalidPath => from_raw(Errno::ENAMETOOLONG),
-        InvalidUtf8 => from_raw(Errno::EILSEQ),
-        UnsupportedOperation => from_raw(Errno::EOPNOTSUPP),
     }
 }
 
