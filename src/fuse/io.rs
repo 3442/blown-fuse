@@ -2,19 +2,14 @@ use bytemuck::Zeroable;
 use nix::{errno::Errno, sys::stat::SFlag};
 
 use std::{
-    borrow::Cow,
     convert::Infallible,
-    ffi::OsStr,
     future::Future,
     ops::{ControlFlow, FromResidual, Try},
 };
 
-use crate::{proto, Ino, TimeToLive, Timestamp};
+use crate::{proto, FuseResult, Ino, TimeToLive, Timestamp};
 
-use super::{
-    fs::{Fuse, Inode},
-    session, Done, Operation, Reply, Request,
-};
+use super::{Done, Operation, Reply, Request};
 
 #[doc(no_inline)]
 pub use nix::{
@@ -23,24 +18,31 @@ pub use nix::{
     unistd::{AccessFlags, Gid, Pid, Uid},
 };
 
-pub enum Interruptible<'o, Fs: Fuse, O: Operation<'o, Fs>, T> {
-    Completed(Reply<'o, Fs, O>, T),
+pub enum Interruptible<'o, O: Operation<'o>, T> {
+    Completed(Reply<'o, O>, T),
     Interrupted(Done<'o>),
+}
+
+pub trait Known {
+    fn ino(&self) -> Ino;
+    fn inode_type(&self) -> EntryType;
+    fn attrs(&self) -> (Attrs, TimeToLive);
+    fn unveil(self);
 }
 
 #[derive(Clone)]
 pub struct Attrs(proto::Attrs);
 
-pub struct Entry<'a, Ref> {
+pub struct Entry<N, K> {
     pub offset: u64,
-    pub name: Cow<'a, OsStr>,
-    pub inode: Ref,
+    pub name: N,
+    pub inode: K,
     pub ttl: TimeToLive,
 }
 
 pub struct FsInfo(proto::StatfsOut);
 
-impl<'o, Fs: Fuse, O: Operation<'o, Fs>> Request<'o, Fs, O> {
+impl<'o, O: Operation<'o>> Request<'o, O> {
     pub fn ino(&self) -> Ino {
         Ino(self.header.ino)
     }
@@ -62,13 +64,13 @@ impl<'o, Fs: Fuse, O: Operation<'o, Fs>> Request<'o, Fs, O> {
     }
 }
 
-impl<'o, Fs: Fuse, O: Operation<'o, Fs>> Reply<'o, Fs, O> {
-    pub async fn interruptible<F, T>(self, f: F) -> Interruptible<'o, Fs, O, T>
+impl<'o, O: Operation<'o>> Reply<'o, O> {
+    pub async fn interruptible<F, T>(self, f: F) -> Interruptible<'o, O, T>
     where
         F: Future<Output = T>,
     {
         tokio::pin!(f);
-        let mut rx = session::interrupt_rx(self.session);
+        let mut rx = self.session.interrupt_rx();
 
         use Interruptible::*;
         loop {
@@ -93,11 +95,9 @@ impl<'o, Fs: Fuse, O: Operation<'o, Fs>> Reply<'o, Fs, O> {
         }
     }
 
-    pub fn fail(mut self, errno: Errno) -> Done<'o> {
-        let errno = errno as i32;
-        O::consume_errno(errno, &mut self.tail);
-
-        Done::from_result(session::fail(self.session, self.unique, errno))
+    pub fn fail(self, errno: Errno) -> Done<'o> {
+        let result = self.session.fail(self.unique, errno as i32);
+        self.finish(result)
     }
 
     pub fn not_implemented(self) -> Done<'o> {
@@ -115,14 +115,18 @@ impl<'o, Fs: Fuse, O: Operation<'o, Fs>> Reply<'o, Fs, O> {
     pub fn interrupted(self) -> Done<'o> {
         self.fail(Errno::EINTR)
     }
+
+    pub(crate) fn finish(self, result: FuseResult<()>) -> Done<'o> {
+        if let Err(error) = result {
+            log::error!("Replying to request {}: {}", self.unique, error);
+        }
+
+        Done::done()
+    }
 }
 
-impl<'o, Fs, O> From<(Reply<'o, Fs, O>, Errno)> for Done<'o>
-where
-    Fs: Fuse,
-    O: Operation<'o, Fs>,
-{
-    fn from((reply, errno): (Reply<'o, Fs, O>, Errno)) -> Done<'o> {
+impl<'o, O: Operation<'o>> From<(Reply<'o, O>, Errno)> for Done<'o> {
+    fn from((reply, errno): (Reply<'o, O>, Errno)) -> Done<'o> {
         reply.fail(errno)
     }
 }
@@ -142,12 +146,8 @@ impl<'o, T: Into<Done<'o>>> FromResidual<Result<Infallible, T>> for Done<'o> {
     }
 }
 
-impl<'o, Fs, O> FromResidual<Interruptible<'o, Fs, O, Infallible>> for Done<'o>
-where
-    Fs: Fuse,
-    O: Operation<'o, Fs>,
-{
-    fn from_residual(residual: Interruptible<'o, Fs, O, Infallible>) -> Self {
+impl<'o, O: Operation<'o>> FromResidual<Interruptible<'o, O, Infallible>> for Done<'o> {
+    fn from_residual(residual: Interruptible<'o, O, Infallible>) -> Self {
         match residual {
             Interruptible::Completed(_, _) => unreachable!(),
             Interruptible::Interrupted(done) => done,
@@ -168,13 +168,10 @@ impl Try for Done<'_> {
     }
 }
 
-impl<'o, Fs, O, T> FromResidual<Interruptible<'o, Fs, O, Infallible>>
-    for Interruptible<'o, Fs, O, T>
-where
-    Fs: Fuse,
-    O: Operation<'o, Fs>,
+impl<'o, O: Operation<'o>, T> FromResidual<Interruptible<'o, O, Infallible>>
+    for Interruptible<'o, O, T>
 {
-    fn from_residual(residual: Interruptible<'o, Fs, O, Infallible>) -> Self {
+    fn from_residual(residual: Interruptible<'o, O, Infallible>) -> Self {
         use Interruptible::*;
 
         match residual {
@@ -184,13 +181,9 @@ where
     }
 }
 
-impl<'o, Fs, O, T> Try for Interruptible<'o, Fs, O, T>
-where
-    Fs: Fuse,
-    O: Operation<'o, Fs>,
-{
-    type Output = (Reply<'o, Fs, O>, T);
-    type Residual = Interruptible<'o, Fs, O, Infallible>;
+impl<'o, O: Operation<'o>, T> Try for Interruptible<'o, O, T> {
+    type Output = (Reply<'o, O>, T);
+    type Residual = Interruptible<'o, O, Infallible>;
 
     fn from_output((reply, t): Self::Output) -> Self {
         Self::Completed(reply, t)
@@ -234,14 +227,14 @@ impl Attrs {
         })
     }
 
-    pub fn times(self, access: Timestamp, modify: Timestamp, change: Timestamp) -> Self {
+    pub fn times(self, access: Timestamp, modify: Timestamp, create: Timestamp) -> Self {
         Attrs(proto::Attrs {
             atime: access.seconds,
             mtime: modify.seconds,
-            ctime: change.seconds,
+            ctime: create.seconds,
             atimensec: access.nanoseconds,
             mtimensec: modify.nanoseconds,
-            ctimensec: change.nanoseconds,
+            ctimensec: create.nanoseconds,
             ..self.0
         })
     }
@@ -253,9 +246,9 @@ impl Attrs {
         })
     }
 
-    pub(crate) fn finish<Fs: Fuse>(self, inode: &Fs::Farc) -> proto::Attrs {
-        let Ino(ino) = <Fs as Fuse>::Inode::ino(inode);
-        let inode_type = match <Fs as Fuse>::Inode::inode_type(inode) {
+    pub(crate) fn finish(self, inode: &impl Known) -> proto::Attrs {
+        let Ino(ino) = inode.ino();
+        let inode_type = match inode.inode_type() {
             EntryType::Fifo => SFlag::S_IFIFO,
             EntryType::CharacterDevice => SFlag::S_IFCHR,
             EntryType::Directory => SFlag::S_IFDIR,

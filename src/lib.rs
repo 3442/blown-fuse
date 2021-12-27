@@ -2,15 +2,8 @@
 //!
 //! `blown-fuse`
 
-#![feature(
-    concat_idents,
-    arbitrary_self_types,
-    associated_type_bounds,
-    associated_type_defaults,
-    trait_alias,
-    try_trait_v2,
-    doc_cfg
-)]
+#![forbid(unsafe_code)]
+#![feature(try_trait_v2, doc_cfg)]
 
 #[cfg(not(target_os = "linux"))]
 compile_error!("Unsupported OS");

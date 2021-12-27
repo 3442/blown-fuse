@@ -1,15 +1,13 @@
 /* Read-only ext2 (rev 1.0) implementation.
  *
  * This is not really async, since the whole backing storage
- * is mmap()ed for simplicity, and then treated as a regular
+ * is mmap()ed for simplicity, and then treated as a static
  * slice (likely unsound, I don't care). Some yields are
  * springled in a few places in order to emulate true async
  * operations.
  *
  * Reference: <https://www.nongnu.org/ext2-doc/ext2.html>
  */
-
-#![feature(arbitrary_self_types)]
 
 #[cfg(target_endian = "big")]
 compile_error!("This example assumes a little-endian system");
@@ -32,43 +30,31 @@ use nix::{
 };
 
 use blown_fuse::{
-    fs::Fuse,
-    io::{Attrs, Entry, FsInfo},
+    io::{Attrs, Entry, FsInfo, Known},
     mount::{mount_sync, Options},
-    ops::{Init, Lookup, Readdir, Readlink, Statfs},
-    Done, Ino, Reply, TimeToLive,
+    ops::{Getattr, Init, Lookup, Readdir, Readlink, Statfs},
+    session::{Dispatch, Start},
+    Done, FuseResult, Ino, Op, TimeToLive,
 };
 
-use async_trait::async_trait;
 use bytemuck::{cast_slice, from_bytes, try_from_bytes};
 use bytemuck_derive::{Pod, Zeroable};
 use clap::{App, Arg};
-use futures_util::stream::{self, Stream, TryStreamExt};
+use futures_util::stream::{self, Stream, StreamExt, TryStreamExt};
 use smallvec::SmallVec;
 use tokio::{self, runtime::Runtime};
 use uuid::Uuid;
 
 const EXT2_ROOT: Ino = Ino(2);
 
-type Op<'o, O> = blown_fuse::Op<'o, Ext2, O>;
-
-#[derive(Copy, Clone)]
-struct Farc {
-    ino: Ino,
-    inode: &'static Inode,
-}
-
-impl std::ops::Deref for Farc {
-    type Target = Inode;
-
-    fn deref(&self) -> &Self::Target {
-        self.inode
-    }
-}
-
 struct Ext2 {
     backing: &'static [u8],
     superblock: &'static Superblock,
+}
+
+struct Resolved {
+    ino: Ino,
+    inode: &'static Inode,
 }
 
 #[derive(Pod, Zeroable, Copy, Clone)]
@@ -158,16 +144,16 @@ struct LinkedEntry {
 impl Ext2 {
     fn directory_stream(
         &self,
-        inode: Farc,
+        inode: &'static Inode,
         start: u64,
-    ) -> impl Stream<Item = Result<Entry<'static, Farc>, Errno>> + '_ {
+    ) -> impl Stream<Item = Result<Entry<&'static OsStr, Resolved>, Errno>> + '_ {
         stream::try_unfold(start, move |mut position| async move {
             loop {
                 if position == inode.i_size as u64 {
                     break Ok(None); // End of stream
                 }
 
-                let bytes = self.seek_contiguous(&inode, position)?;
+                let bytes = self.seek_contiguous(inode, position)?;
                 let (header, bytes) = bytes.split_at(size_of::<LinkedEntry>());
                 let header: &LinkedEntry = from_bytes(header);
 
@@ -176,8 +162,13 @@ impl Ext2 {
                     continue; // Unused entry
                 }
 
-                let inode = self.inode(Ino(header.inode as u64))?;
+                let ino = Ino(header.inode as u64);
                 let name = OsStr::from_bytes(&bytes[..header.name_len as usize]).into();
+
+                let inode = Resolved {
+                    ino,
+                    inode: self.inode(ino)?,
+                };
 
                 let entry = Entry {
                     inode,
@@ -191,7 +182,13 @@ impl Ext2 {
         })
     }
 
-    fn inode(&self, Ino(ino): Ino) -> Result<Farc, Errno> {
+    fn inode(&self, ino: Ino) -> Result<&'static Inode, Errno> {
+        let Ino(ino) = match ino {
+            Ino::ROOT => EXT2_ROOT,
+            EXT2_ROOT => Ino::ROOT,
+            ino => ino,
+        };
+
         if ino == 0 {
             log::error!("Attempted to access the null (0) inode");
             return Err(Errno::EIO);
@@ -210,23 +207,21 @@ impl Ext2 {
         let start = index % inodes_per_block * inode_size;
         let end = start + size_of::<Inode>();
 
-        Ok(Farc {
-            ino: Ino(ino),
-            inode: from_bytes(&self.block(block)?[start..end]),
-        })
+        Ok(from_bytes(&self.block(block)?[start..end]))
     }
 
-    fn seek_contiguous(&self, inode: &Farc, position: u64) -> Result<&'static [u8], Errno> {
+    fn seek_contiguous(
+        &self,
+        inode: &'static Inode,
+        position: u64,
+    ) -> Result<&'static [u8], Errno> {
         let block_size = self.block_size();
         let position = position as usize;
         let (direct, offset) = (position / block_size, position % block_size);
 
-        let out_of_bounds = || {
-            log::error!("Offset {} out of bounds in inode {}", position, inode.ino);
-        };
-
+        let out_of_bounds = || log::error!("Offset {} out of bounds", position);
         let chase = |indices: &[usize]| {
-            let root: &[u8] = cast_slice(&inode.inode.i_block);
+            let root: &[u8] = cast_slice(&inode.i_block);
             indices
                 .iter()
                 .try_fold(root, |ptrs, index| {
@@ -304,12 +299,8 @@ impl Ext2 {
     }
 }
 
-#[async_trait]
-impl Fuse for Ext2 {
-    type Farc = Farc;
-    type Inode = Inode;
-
-    async fn init<'o>(&self, reply: Reply<'o, Ext2, Init>) -> Done<'o> {
+impl Ext2 {
+    async fn init<'o>(&self, (_, reply): Op<'o, Init>) -> Done<'o> {
         let label = &self.superblock.s_volume_name;
         let label = &label[..=label.iter().position(|byte| *byte == b'\0').unwrap_or(0)];
         let label = CStr::from_bytes_with_nul(label)
@@ -327,16 +318,11 @@ impl Fuse for Ext2 {
         log::info!("UUID: {}", Uuid::from_bytes(self.superblock.s_uuid));
         log::info!("Label: {}", label.escape_debug());
 
-        if let Ok(root) = self.inode(EXT2_ROOT) {
-            log::info!("Mounted successfully");
-            reply.root(root)
-        } else {
-            log::error!("Failed to retrieve the root inode");
-            reply.io_error()
-        }
+        log::info!("Mounted successfully");
+        reply.ok()
     }
 
-    async fn statfs<'o>(&self, (_, reply, _): Op<'o, Statfs>) -> Done<'o> {
+    async fn statfs<'o>(&self, (_, reply): Op<'o, Statfs>) -> Done<'o> {
         let total_blocks = self.superblock.s_blocks_count as u64;
         let free_blocks = self.superblock.s_free_blocks_count as u64;
         let available_blocks = free_blocks - self.superblock.s_r_blocks_count as u64;
@@ -355,22 +341,103 @@ impl Fuse for Ext2 {
                 .filenames(255),
         )
     }
-}
 
-#[async_trait]
-impl blown_fuse::fs::Inode for Inode {
-    type Fuse = Ext2;
+    async fn getattr<'o>(&self, (request, reply): Op<'o, Getattr>) -> Done<'o> {
+        let ino = request.ino();
+        let (reply, inode) = reply.fallible(self.inode(ino))?;
 
-    fn ino(self: &Farc) -> Ino {
-        match self.ino {
-            Ino::ROOT => EXT2_ROOT,
-            EXT2_ROOT => Ino::ROOT,
-            ino => ino,
+        reply.known(&Resolved { ino, inode })
+    }
+
+    async fn lookup<'o>(&self, (request, reply): Op<'o, Lookup>) -> Done<'o> {
+        let name = request.name();
+        let (reply, parent) = reply.fallible(self.inode(request.ino()))?;
+
+        //TODO: Indexed directories
+        let lookup = async {
+            let stream = self.directory_stream(parent, 0);
+            tokio::pin!(stream);
+
+            loop {
+                match stream.try_next().await? {
+                    Some(entry) if entry.name == name => break Ok(Some(entry.inode)),
+                    Some(_) => continue,
+                    None => break Ok(None),
+                }
+            }
+        };
+
+        let (reply, result) = reply.interruptible(lookup).await?;
+        let (reply, inode) = reply.fallible(result)?;
+
+        if let Some(inode) = inode {
+            reply.found(inode, TimeToLive::MAX)
+        } else {
+            reply.not_found(TimeToLive::MAX)
         }
     }
 
-    fn inode_type(self: &Farc) -> Type {
-        let inode_type = self.i_mode >> 12;
+    async fn readlink<'o>(&self, (request, reply): Op<'o, Readlink>) -> Done<'o> {
+        let ino = request.ino();
+        let (reply, inode) = reply.fallible(self.inode(ino))?;
+
+        let resolved = Resolved { ino, inode };
+        if resolved.inode_type() != Type::Symlink {
+            return reply.invalid_argument();
+        }
+
+        let size = inode.i_size as usize;
+        if size < size_of::<[u32; 15]>() {
+            return reply.target(OsStr::from_bytes(&cast_slice(&inode.i_block)[..size]));
+        }
+
+        let segments = async {
+            /* This is unlikely to ever spill, and is guaranteed not to
+             * do so for valid symlinks on any fs where block_size >= 4096.
+             */
+            let mut segments = SmallVec::<[&[u8]; 1]>::new();
+            let (mut size, mut offset) = (size, 0);
+
+            while size > 0 {
+                let segment = self.seek_contiguous(inode, offset)?;
+                let segment = &segment[..segment.len().min(size)];
+
+                segments.push(segment);
+
+                size -= segment.len();
+                offset += segment.len() as u64;
+            }
+
+            Ok(segments)
+        };
+
+        let (reply, segments) = reply.fallible(segments.await)?;
+        reply.gather_target(&segments)
+    }
+
+    async fn readdir<'o>(&self, (request, reply): Op<'o, Readdir>) -> Done<'o> {
+        let (mut reply, inode) = reply.fallible(self.inode(request.ino()))?;
+
+        let stream = self.directory_stream(inode, request.offset());
+        tokio::pin!(stream);
+
+        while let Some(entry) = stream.next().await {
+            let (next_reply, entry) = reply.fallible(entry)?;
+            let (next_reply, ()) = next_reply.entry(entry)?;
+            reply = next_reply;
+        }
+
+        reply.end()
+    }
+}
+
+impl Known for Resolved {
+    fn ino(&self) -> Ino {
+        self.ino
+    }
+
+    fn inode_type(&self) -> Type {
+        let inode_type = self.inode.i_mode >> 12;
         match inode_type {
             0x01 => Type::Fifo,
             0x02 => Type::CharacterDevice,
@@ -387,92 +454,55 @@ impl blown_fuse::fs::Inode for Inode {
         }
     }
 
-    fn attrs(self: &Farc) -> (Attrs, TimeToLive) {
-        let (access, modify, change) = {
+    fn attrs(&self) -> (Attrs, TimeToLive) {
+        let inode = self.inode;
+        let (access, modify, create) = {
             let time = |seconds: u32| (UNIX_EPOCH + Duration::from_secs(seconds.into())).into();
-            (time(self.i_atime), time(self.i_mtime), time(self.i_ctime))
+            let (atime, mtime, ctime) = (inode.i_atime, inode.i_mtime, inode.i_ctime);
+
+            (time(atime), time(mtime), time(ctime))
         };
 
         let attrs = Attrs::default()
-            .size((self.i_dir_acl as u64) << 32 | self.i_size as u64)
+            .size((inode.i_dir_acl as u64) << 32 | inode.i_size as u64)
             .owner(
-                Uid::from_raw(self.i_uid.into()),
-                Gid::from_raw(self.i_gid.into()),
+                Uid::from_raw(inode.i_uid.into()),
+                Gid::from_raw(inode.i_gid.into()),
             )
-            .mode(Mode::from_bits_truncate(self.i_mode.into()))
-            .blocks(self.i_blocks.into(), 512)
-            .times(access, modify, change)
-            .links(self.i_links_count.into());
+            .mode(Mode::from_bits_truncate(inode.i_mode.into()))
+            .blocks(inode.i_blocks.into(), 512)
+            .times(access, modify, create)
+            .links(inode.i_links_count.into());
 
         (attrs, TimeToLive::MAX)
     }
 
-    async fn lookup<'o>(self: Farc, (request, reply, session): Op<'o, Lookup>) -> Done<'o> {
-        let fs = session.fs();
-        let name = request.name();
+    fn unveil(self) {}
+}
 
-        //TODO: Indexed directories
-        let lookup = async move {
-            let stream = fs.directory_stream(self, 0);
-            tokio::pin!(stream);
+async fn main_loop(session: Start, fs: Ext2) -> FuseResult<()> {
+    let session = session.start().await?;
+    let mut endpoint = session.endpoint();
 
-            loop {
-                match stream.try_next().await? {
-                    Some(entry) if entry.name == name => break Ok(Some(entry.inode)),
-                    Some(_) => continue,
-                    None => break Ok(None),
+    loop {
+        let result = endpoint.receive(|dispatch| async {
+            use Dispatch::*;
+
+            match dispatch {
+                Statfs(statfs) => fs.statfs(statfs.op()?).await,
+                Getattr(getattr) => fs.getattr(getattr.op()?).await,
+                Lookup(lookup) => fs.lookup(lookup.op()?).await,
+                Readlink(readlink) => fs.readlink(readlink.op()?).await,
+                Readdir(readdir) => fs.readdir(readdir.op()?).await,
+
+                dispatch => {
+                    let (_, reply) = dispatch.op();
+                    reply.not_implemented()
                 }
             }
-        };
+        });
 
-        let (reply, result) = reply.interruptible(lookup).await?;
-        let (reply, inode) = reply.fallible(result)?;
-
-        if let Some(inode) = inode {
-            reply.found(&inode, TimeToLive::MAX)
-        } else {
-            reply.not_found(TimeToLive::MAX)
-        }
-    }
-
-    async fn readlink<'o>(self: Farc, (_, reply, session): Op<'o, Readlink>) -> Done<'o> {
-        if Inode::inode_type(&self) != Type::Symlink {
-            return reply.invalid_argument();
-        }
-
-        let size = self.i_size as usize;
-        if size < size_of::<[u32; 15]>() {
-            return reply.target(OsStr::from_bytes(&cast_slice(&self.i_block)[..size]));
-        }
-
-        let fs = session.fs();
-        let segments = async {
-            /* This is unlikely to ever spill, and is guaranteed not to
-             * do so for valid symlinks on any fs where block_size >= 4096.
-             */
-            let mut segments = SmallVec::<[&OsStr; 1]>::new();
-            let (mut size, mut offset) = (size, 0);
-
-            while size > 0 {
-                let segment = fs.seek_contiguous(&self, offset)?;
-                let segment = &segment[..segment.len().min(size)];
-
-                segments.push(OsStr::from_bytes(segment));
-
-                size -= segment.len();
-                offset += segment.len() as u64;
-            }
-
-            Ok(segments)
-        };
-
-        let (reply, segments) = reply.fallible(segments.await)?;
-        reply.gather_target(&segments)
-    }
-
-    async fn readdir<'o>(self: Farc, (request, reply, session): Op<'o, Readdir>) -> Done<'o> {
-        let stream = session.fs().directory_stream(self, request.offset());
-        reply.try_stream(stream).await?
+        result.await?;
     }
 }
 
@@ -553,5 +583,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         superblock,
     };
 
-    Ok(Runtime::new()?.block_on(async { session.start(fs).await?.main_loop().await })?)
+    Ok(Runtime::new()?.block_on(main_loop(session, fs))?)
 }

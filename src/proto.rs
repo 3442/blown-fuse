@@ -4,7 +4,7 @@ use bitflags::bitflags;
 use bytemuck::{self, Pod};
 use bytemuck_derive::{Pod, Zeroable};
 use num_enum::TryFromPrimitive;
-use std::{convert::TryFrom, ffi::CStr, fmt, mem};
+use std::{convert::TryFrom, ffi::CStr, fmt};
 
 use crate::{util::display_or, FuseError, FuseResult};
 
@@ -14,9 +14,15 @@ pub const MAJOR_VERSION: u32 = 7;
 pub const TARGET_MINOR_VERSION: u32 = 32;
 pub const REQUIRED_MINOR_VERSION: u32 = 31;
 
-pub struct Request<'a> {
-    header: &'a InHeader,
-    body: RequestBody<'a>,
+pub trait Structured<'o>: Sized {
+    fn split_from(bytes: &'o [u8], last: bool) -> FuseResult<(Self, &'o [u8])>;
+
+    fn toplevel_from(bytes: &'o [u8]) -> FuseResult<Self> {
+        match Self::split_from(bytes, true)? {
+            (ok, end) if end.is_empty() => Ok(ok),
+            _ => Err(FuseError::BadLength),
+        }
+    }
 }
 
 #[derive(Pod, Zeroable, Copy, Clone)]
@@ -38,98 +44,6 @@ pub struct OutHeader {
     pub len: u32,
     pub error: i32,
     pub unique: u64,
-}
-
-pub enum RequestBody<'a> {
-    Lookup {
-        name: &'a CStr,
-    },
-    Forget(&'a ForgetIn),
-    Getattr(&'a GetattrIn),
-    Setattr(&'a SetattrIn),
-    Readlink,
-    Symlink {
-        name: &'a CStr,
-        target: &'a CStr,
-    },
-    Mknod {
-        prefix: &'a MknodIn,
-        name: &'a CStr,
-    },
-    Mkdir {
-        prefix: &'a MkdirIn,
-        target: &'a CStr,
-    },
-    Unlink {
-        name: &'a CStr,
-    },
-    Rmdir {
-        name: &'a CStr,
-    },
-    Rename {
-        prefix: &'a RenameIn,
-        old: &'a CStr,
-        new: &'a CStr,
-    },
-    Link(&'a LinkIn),
-    Open(&'a OpenIn),
-    Read(&'a ReadIn),
-    Write {
-        prefix: &'a WriteIn,
-        data: &'a [u8],
-    },
-    Statfs,
-    Release(&'a ReleaseIn),
-    Fsync(&'a FsyncIn),
-    Setxattr {
-        prefix: &'a SetxattrIn,
-        name: &'a CStr,
-        value: &'a CStr,
-    },
-    Getxattr {
-        prefix: &'a GetxattrIn,
-        name: &'a CStr,
-    },
-    Listxattr(&'a ListxattrIn),
-    Removexattr {
-        name: &'a CStr,
-    },
-    Flush(&'a FlushIn),
-    Init(&'a InitIn),
-    Opendir(&'a OpendirIn),
-    Readdir(&'a ReaddirIn),
-    Releasedir(&'a ReleasedirIn),
-    Fsyncdir(&'a FsyncdirIn),
-    Getlk(&'a GetlkIn),
-    Setlk(&'a SetlkIn),
-    Setlkw(&'a SetlkwIn),
-    Access(&'a AccessIn),
-    Create {
-        prefix: &'a CreateIn,
-        name: &'a CStr,
-    },
-    Interrupt(&'a InterruptIn),
-    Bmap(&'a BmapIn),
-    Destroy,
-    Ioctl {
-        prefix: &'a IoctlIn,
-        data: &'a [u8],
-    },
-    Poll(&'a PollIn),
-    NotifyReply,
-    BatchForget {
-        prefix: &'a BatchForgetIn,
-        forgets: &'a [ForgetOne],
-    },
-    Fallocate(&'a FallocateIn),
-    ReaddirPlus(&'a ReaddirPlusIn),
-    Rename2 {
-        prefix: &'a Rename2In,
-        old: &'a CStr,
-        new: &'a CStr,
-    },
-    Lseek(&'a LseekIn),
-    CopyFileRange(&'a CopyFileRangeIn),
 }
 
 #[derive(TryFromPrimitive, Copy, Clone, Debug)]
@@ -650,211 +564,52 @@ pub struct CopyFileRangeIn {
     pub flags: u64,
 }
 
-impl Request<'_> {
-    pub fn header(&self) -> &InHeader {
-        self.header
-    }
-
-    pub fn body(&self) -> &RequestBody<'_> {
-        &self.body
+impl<'o> Structured<'o> for () {
+    fn split_from(bytes: &'o [u8], _last: bool) -> FuseResult<(Self, &'o [u8])> {
+        Ok(((), bytes))
     }
 }
 
-impl<'a> TryFrom<&'a [u8]> for Request<'a> {
-    type Error = FuseError;
-
-    fn try_from(bytes: &'a [u8]) -> FuseResult<Self> {
-        use FuseError::*;
-
-        fn split_from_bytes<T: Pod>(bytes: &[u8]) -> FuseResult<(&T, &[u8])> {
-            let (bytes, next_bytes) = bytes.split_at(bytes.len().min(std::mem::size_of::<T>()));
-            match bytemuck::try_from_bytes(bytes) {
-                Ok(t) => Ok((t, next_bytes)),
-                Err(_) => Err(Truncated),
+impl<'o> Structured<'o> for &'o CStr {
+    fn split_from(bytes: &'o [u8], last: bool) -> FuseResult<(Self, &'o [u8])> {
+        let (cstr, after_cstr): (&[u8], &[u8]) = if last {
+            (bytes, &[])
+        } else {
+            match bytes.iter().position(|byte| *byte == b'\0') {
+                Some(nul) => bytes.split_at(nul + 1),
+                None => return Err(FuseError::Truncated),
             }
+        };
+
+        let cstr = CStr::from_bytes_with_nul(cstr).map_err(|_| FuseError::BadLength)?;
+        Ok((cstr, after_cstr))
+    }
+}
+
+impl<'o, T: Pod> Structured<'o> for &'o T {
+    fn split_from(bytes: &'o [u8], _last: bool) -> FuseResult<(Self, &'o [u8])> {
+        let (bytes, next_bytes) = bytes.split_at(bytes.len().min(std::mem::size_of::<T>()));
+        match bytemuck::try_from_bytes(bytes) {
+            Ok(t) => Ok((t, next_bytes)),
+            Err(_) => Err(FuseError::Truncated),
         }
+    }
+}
 
-        let full_bytes = bytes;
-        let (header, mut bytes) = split_from_bytes::<InHeader>(full_bytes)?;
+impl InHeader {
+    pub fn from_bytes(bytes: &[u8]) -> FuseResult<(Self, Opcode)> {
+        let (header, _) = <&InHeader>::split_from(bytes, false)?;
 
-        if header.len as usize != full_bytes.len() {
-            return Err(BadLength);
+        if header.len as usize != bytes.len() {
+            return Err(FuseError::BadLength);
         }
 
         let opcode = match Opcode::try_from(header.opcode) {
             Ok(opcode) => opcode,
-            Err(_) => return Err(BadOpcode),
+            Err(_) => return Err(FuseError::BadOpcode),
         };
 
-        macro_rules! prefix {
-            ($op:ident, $ident:ident, $is_last:expr) => {
-                prefix!($op, $ident);
-            };
-
-            ($op:ident, $ident:ident) => {
-                let ($ident, after_prefix) = split_from_bytes::<concat_idents!($op, In)>(bytes)?;
-                bytes = after_prefix;
-            };
-        }
-
-        fn cstr_from_bytes(bytes: &[u8], is_last: bool) -> FuseResult<(&CStr, &[u8])> {
-            let (cstr, after_cstr): (&[u8], &[u8]) = if is_last {
-                (bytes, &[])
-            } else {
-                match bytes.iter().position(|byte| *byte == b'\0') {
-                    Some(nul) => bytes.split_at(nul + 1),
-                    None => return Err(Truncated),
-                }
-            };
-
-            let cstr = CStr::from_bytes_with_nul(cstr).map_err(|_| BadLength)?;
-            Ok((cstr, after_cstr))
-        }
-
-        macro_rules! cstr {
-            ($op:ident, $ident:ident, $is_last:expr) => {
-                let ($ident, next_bytes) = cstr_from_bytes(bytes, $is_last)?;
-                bytes = next_bytes;
-            };
-        }
-
-        macro_rules! name {
-            ($op:ident, $ident:ident, $is_last:expr) => {
-                cstr!($op, $ident, $is_last);
-            };
-        }
-
-        macro_rules! value {
-            ($op:ident, $ident:ident, $is_last:expr) => {
-                cstr!($op, $ident, $is_last);
-            };
-        }
-
-        macro_rules! target {
-            ($op:ident, $ident:ident, $is_last:expr) => {
-                cstr!($op, $ident, $is_last);
-            };
-        }
-
-        macro_rules! old {
-            ($op:ident, $ident:ident, $is_last:expr) => {
-                cstr!($op, $ident, $is_last);
-            };
-        }
-
-        macro_rules! new {
-            ($op:ident, $ident:ident, $is_last:expr) => {
-                cstr!($op, $ident, $is_last);
-            };
-        }
-
-        macro_rules! build_body {
-            ($op:ident, $last:ident) => {
-                $last!($op, $last, true);
-            };
-
-            ($op:ident, $field:ident, $($next:ident),+) => {
-                $field!($op, $field, false);
-                build_body!($op, $($next),+);
-            };
-        }
-
-        macro_rules! body {
-            ($op:ident) => {
-                RequestBody::$op
-            };
-
-            ($op:ident, prefix) => {
-                {
-                    prefix!($op, prefix);
-                    RequestBody::$op(prefix)
-                }
-            };
-
-            ($op:ident, prefix, data where len == $size_field:ident) => {
-                {
-                    prefix!($op, prefix);
-                    if prefix.$size_field as usize != bytes.len() {
-                        return Err(BadLength);
-                    }
-
-                    RequestBody::$op { prefix, data: mem::take(&mut bytes) }
-                }
-            };
-
-            ($op:ident, $($fields:ident),+) => {
-                {
-                    build_body!($op, $($fields),+);
-                    RequestBody::$op { $($fields),+ }
-                }
-            };
-        }
-
-        use Opcode::*;
-        let body = match opcode {
-            Lookup => body!(Lookup, name),
-            Forget => body!(Forget, prefix),
-            Getattr => body!(Getattr, prefix),
-            Setattr => body!(Setattr, prefix),
-            Readlink => body!(Readlink),
-            Symlink => body!(Symlink, name, target),
-            Mknod => body!(Mknod, prefix, name),
-            Mkdir => body!(Mkdir, prefix, target),
-            Unlink => body!(Unlink, name),
-            Rmdir => body!(Rmdir, name),
-            Rename => body!(Rename, prefix, old, new),
-            Link => body!(Link, prefix),
-            Open => body!(Open, prefix),
-            Read => body!(Read, prefix),
-            Write => body!(Write, prefix, data where len == size),
-            Statfs => body!(Statfs),
-            Release => body!(Release, prefix),
-            Fsync => body!(Fsync, prefix),
-            Setxattr => body!(Setxattr, prefix, name, value),
-            Getxattr => body!(Getxattr, prefix, name),
-            Listxattr => body!(Listxattr, prefix),
-            Removexattr => body!(Removexattr, name),
-            Flush => body!(Flush, prefix),
-            Init => body!(Init, prefix),
-            Opendir => body!(Opendir, prefix),
-            Readdir => body!(Readdir, prefix),
-            Releasedir => body!(Releasedir, prefix),
-            Fsyncdir => body!(Fsyncdir, prefix),
-            Getlk => body!(Getlk, prefix),
-            Setlk => body!(Setlk, prefix),
-            Setlkw => body!(Setlkw, prefix),
-            Access => body!(Access, prefix),
-            Create => body!(Create, prefix, name),
-            Interrupt => body!(Interrupt, prefix),
-            Bmap => body!(Bmap, prefix),
-            Destroy => body!(Destroy),
-            Ioctl => body!(Ioctl, prefix, data where len == in_size),
-            Poll => body!(Poll, prefix),
-            NotifyReply => body!(NotifyReply),
-            BatchForget => {
-                prefix!(BatchForget, prefix);
-
-                let forgets = mem::take(&mut bytes);
-                let forgets = bytemuck::try_cast_slice(forgets).map_err(|_| Truncated)?;
-
-                if prefix.count as usize != forgets.len() {
-                    return Err(BadLength);
-                }
-
-                RequestBody::BatchForget { prefix, forgets }
-            }
-            Fallocate => body!(Fallocate, prefix),
-            ReaddirPlus => body!(ReaddirPlus, prefix),
-            Rename2 => body!(Rename2, prefix, old, new),
-            Lseek => body!(Lseek, prefix),
-            CopyFileRange => body!(CopyFileRange, prefix),
-        };
-
-        if bytes.is_empty() {
-            Ok(Request { header, body })
-        } else {
-            Err(BadLength)
-        }
+        Ok((*header, opcode))
     }
 }
 

@@ -17,7 +17,7 @@ use nix::{
 
 use quick_error::quick_error;
 
-use super::Start;
+use super::session::Start;
 use crate::util::DumbFd;
 
 quick_error! {
@@ -146,10 +146,8 @@ where
         Ok(session_fd) => {
             let fusermount_fd = DumbFd(left_side.into_raw_fd());
             let session_fd = DumbFd(session_fd);
-            Ok(Start {
-                fusermount_fd,
-                session_fd,
-            })
+
+            Ok(Start::new(fusermount_fd, session_fd))
         }
 
         Err(error) => {

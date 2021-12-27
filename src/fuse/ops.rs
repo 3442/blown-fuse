@@ -1,9 +1,6 @@
 use bytemuck::{bytes_of, Pod, Zeroable};
-use futures_util::stream::{Stream, StreamExt, TryStreamExt};
-use nix::sys::stat::SFlag;
 
 use std::{
-    borrow::Borrow,
     ffi::{CStr, OsStr},
     os::unix::ffi::OsStrExt,
 };
@@ -11,56 +8,61 @@ use std::{
 use crate::{proto, util::OutputChain, Errno, Ino, TimeToLive};
 
 use super::{
-    fs::{Fuse, Inode},
-    io::{AccessFlags, Entry, EntryType, FsInfo},
-    session, Done, Operation, Reply, Request,
+    io::{AccessFlags, Entry, FsInfo, Interruptible, Known},
+    Done, Operation, Reply, Request,
 };
 
 macro_rules! op {
-    { $name:ident $operation:tt $(,)+ } => {
+    { $name:ident $operation:tt } => {
         pub struct $name(());
 
-        impl<'o, Fs: Fuse> Operation<'o, Fs> for $name $operation
+        impl<'o> Operation<'o> for $name $operation
     };
 
-    { $name:ident $operation:tt, Request $request:tt $($next:tt)+ } => {
-        impl<'o, Fs: Fuse> Request<'o, Fs, $name> $request
+    { $name:ident $operation:tt impl Request $request:tt $($next:tt)* } => {
+        impl<'o> Request<'o, $name> $request
 
-        op! { $name $operation $($next)+ }
+        op! { $name $operation $($next)* }
     };
 
-    { $name:ident $operation:tt, Reply $reply:tt $($next:tt)+ } => {
-        impl<'o, Fs: Fuse> Reply<'o, Fs, $name> $reply
+    { $name:ident $operation:tt impl Reply $reply:tt $($next:tt)* } => {
+        impl<'o> Reply<'o, $name> $reply
 
-        op! { $name $operation $($next)+ }
+        op! { $name $operation $($next)* }
     };
 }
 
 op! {
-    Lookup {
-        // name()
-        type RequestBody = &'o CStr;
-    },
+    Any {
+        type RequestBody = ();
+        type ReplyTail = ();
+    }
+}
 
-    Request {
+op! {
+    Lookup {
+        type RequestBody = &'o CStr; // name()
+        type ReplyTail = ();
+    }
+
+    impl Request {
         /// Returns the name of the entry being looked up in this directory.
         pub fn name(&self) -> &OsStr {
             c_to_os(self.body)
         }
-    },
+    }
 
-    Reply {
-        /// The requested entry was found and a `Farc` was successfully determined from it. The
-        /// FUSE client will become aware of the found inode if it wasn't before. This result may
-        /// be cached by the client for up to the given TTL.
-        pub fn found(self, entry: &Fs::Farc, ttl: TimeToLive) -> Done<'o> {
-            let (attrs, attrs_ttl) = <Fs as Fuse>::Inode::attrs(entry);
-            session::unveil(self.session, entry);
+    impl Reply {
+        /// The requested entry was found. The FUSE client will become aware of the found inode if
+        /// it wasn't before. This result may be cached by the client for up to the given TTL.
+        pub fn found(self, entry: impl Known, ttl: TimeToLive) -> Done<'o> {
+            let (attrs, attrs_ttl) = entry.attrs();
+            let attrs = attrs.finish(&entry);
 
-            self.single(&make_entry(
-                (<Fs as Fuse>::Inode::ino(entry), ttl),
-                (attrs.finish::<Fs>(entry), attrs_ttl),
-            ))
+            let done = self.single(&make_entry((entry.ino(), ttl), (attrs, attrs_ttl)));
+            entry.unveil();
+
+            done
         }
 
         /// The requested entry was not found in this directory. The FUSE clint may include this
@@ -75,13 +77,37 @@ op! {
         pub fn not_found_uncached(self) -> Done<'o> {
             self.fail(Errno::ENOENT)
         }
-    },
+    }
 }
 
 op! {
-    Readlink {},
+    Getattr {
+        type RequestBody = &'o proto::GetattrIn;
+        type ReplyTail = ();
+    }
 
-    Reply {
+    impl Reply {
+        pub fn known(self, inode: &impl Known) -> Done<'o> {
+            let (attrs, ttl) = inode.attrs();
+            let attrs = attrs.finish(inode);
+
+            self.single(&proto::AttrOut {
+                attr_valid: ttl.seconds,
+                attr_valid_nsec: ttl.nanoseconds,
+                dummy: Default::default(),
+                attr: attrs,
+            })
+        }
+    }
+}
+
+op! {
+    Readlink {
+        type RequestBody = ();
+        type ReplyTail = ();
+    }
+
+    impl Reply {
         /// This inode corresponds to a symbolic link pointing to the given target path.
         pub fn target(self, target: &OsStr) -> Done<'o> {
             self.chain(OutputChain::tail(&[target.as_bytes()]))
@@ -89,230 +115,129 @@ op! {
 
         /// Same as [`Reply::target()`], except that the target path is taken from disjoint
         /// slices. This involves no additional allocation.
-        pub fn gather_target(self, target: &[&OsStr]) -> Done<'o> {
-            //FIXME: Likely UB
-            self.chain(OutputChain::tail(unsafe { std::mem::transmute(target) }))
+        pub fn gather_target(self, target: &[&[u8]]) -> Done<'o> {
+            self.chain(OutputChain::tail(target))
         }
-    },
+    }
 }
 
 op! {
     Open {
         type RequestBody = &'o proto::OpenIn;
-        type ReplyTail = (Ino, proto::OpenOutFlags);
-    },
+        type ReplyTail = private::OpenFlags;
+    }
 
-    Reply {
+    impl Reply {
+        pub fn force_direct_io(&mut self) {
+            self.tail.0 |= proto::OpenOutFlags::DIRECT_IO;
+        }
+
         /// The inode may now be accessed.
         pub fn ok(self) -> Done<'o> {
             self.ok_with_handle(0)
         }
 
         fn ok_with_handle(self, handle: u64) -> Done<'o> {
-            let (_, flags) = self.tail;
+            let open_flags = self.tail.0.bits();
+
             self.single(&proto::OpenOut {
                 fh: handle,
-                open_flags: flags.bits(),
+                open_flags,
                 padding: Default::default(),
             })
         }
-    },
+    }
 }
 
-op! { Read {}, }
-/*op! {
+op! {
     Read {
-        type RequestBody = &'o proto::ReadIn;
-        type ReplyTail = &'o mut OutputBytes<'o>;
-    },
-
-    Request {
-        pub fn offset(&self) -> u64 {
-            self.body.offset
-        }
-
-        pub fn size(&self) -> u32 {
-            self.body.size
-        }
-    },
-
-    Reply {
-        pub fn remaining(&self) -> u64 {
-            self.tail.remaining()
-        }
-
-        pub fn end(self) -> Done<'o> {
-            if self.tail.ready() {
-                self.chain(OutputChain::tail(self.tail.segments()))
-            } else {
-                // The read() handler will be invoked again with same OutputBytes
-                self.done()
-            }
-        }
-
-        pub fn hole(self, size: u64) -> Result<Self, Done<'o>> {
-            self.tail
-        }
-
-        pub fn copy(self, data: &[u8]) -> Result<Self, Done<'o>> {
-            self.self_or_done(self.tail.copy(data))
-        }
-
-        pub fn put(self, data: &'o [u8]) -> Result<Self, Done<'o>> {
-            self.self_or_done(self.tail.put(data))
-        }
-
-        pub fn gather(self, data: &'o [&'o [u8]]) -> Result<Self, Done<'o>> {
-            self.self_or_done(self.tail.gather(data))
-        }
-
-        fn self_or_done(self, capacity: OutputCapacity) -> Result<Self, Done<'o>> {
-            match capacity {
-                OutputCapacity::Available => Ok(self),
-                OutputCapacity::Filled => Err(self.done()),
-            }
-        }
-    },
-}*/
+        type RequestBody = ();
+        type ReplyTail = ();
+    }
+}
 
 op! {
     Write {
         type RequestBody = &'o proto::WriteIn;
-    },
+        type ReplyTail = ();
+    }
 }
 
 op! {
     Init {
-        type ReplyTail = &'o mut Result<Fs::Farc, i32>;
+        type RequestBody = &'o proto::InitIn;
+        type ReplyTail = ();
+    }
 
-        fn consume_errno(errno: i32, tail: &mut Self::ReplyTail) {
-            **tail = Err(errno);
+    impl Reply {
+        pub fn ok(self) -> Done<'o> {
+            self.nop()
         }
-    },
-
-    Reply {
-        /// Server-side initialization succeeded. The provided `Farc` references the filesystem's
-        /// root inode.
-        pub fn root(self, root: Fs::Farc) -> Done<'o> {
-            *self.tail = Ok(root);
-            self.done()
-        }
-    },
+    }
 }
 
 op! {
-    Statfs {},
+    Statfs {
+        type RequestBody = ();
+        type ReplyTail = ();
+    }
 
-    Reply {
+    impl Reply {
         /// Replies with filesystem statistics.
         pub fn info(self, statfs: FsInfo) -> Done<'o> {
             let statfs: proto::StatfsOut = statfs.into();
             self.single(&statfs)
         }
-    },
+    }
 }
 
 op! {
     Opendir {
         type RequestBody = &'o proto::OpendirIn;
-    },
+        type ReplyTail = ();
+    }
 }
 
 op! {
     Readdir {
         type RequestBody = &'o proto::ReaddirIn;
-    },
+        type ReplyTail = ();
+    }
 
-    Request {
+    impl Request {
         /// Returns the base offset in the directory stream to read from.
         pub fn offset(&self) -> u64 {
             self.body.read_in.offset
         }
-    },
+    }
 
-    Reply {
-        pub fn try_iter<'a, I, E, Ref>(
-            self,
-            mut entries: I,
-        ) -> Result<Done<'o>, (Reply<'o, Fs, Readdir>, E)>
+    impl Reply {
+        pub fn entry<N>(self, inode: Entry<N, impl Known>) -> Interruptible<'o, Readdir, ()>
         where
-            I: Iterator<Item = Result<Entry<'a, Ref>, E>> + Send,
-            Ref: Borrow<Fs::Farc>,
+            N: AsRef<OsStr>,
         {
-            //TODO: This is about as shitty as it gets
-            match entries.next().transpose() {
-                Ok(Some(entry)) => {
-                    let Entry {
-                        name,
-                        inode,
-                        offset,
-                        ..
-                    } = entry;
-
-                    let inode = inode.borrow();
-                    let Ino(ino) = <Fs as Fuse>::Inode::ino(inode);
-
-                    let dirent = proto::Dirent {
-                        ino,
-                        off: offset,
-                        namelen: name.len() as u32,
-                        entry_type: (match <Fs as Fuse>::Inode::inode_type(inode) {
-                            EntryType::Fifo => SFlag::S_IFIFO,
-                            EntryType::CharacterDevice => SFlag::S_IFCHR,
-                            EntryType::Directory => SFlag::S_IFDIR,
-                            EntryType::BlockDevice => SFlag::S_IFBLK,
-                            EntryType::File => SFlag::S_IFREG,
-                            EntryType::Symlink => SFlag::S_IFLNK,
-                            EntryType::Socket => SFlag::S_IFSOCK,
-                        })
-                        .bits()
-                            >> 12,
-                    };
-
-                    let dirent = bytes_of(&dirent);
-                    let name = name.as_bytes();
-
-                    let padding = [0; 8];
-                    let padding = &padding[..7 - (dirent.len() + name.len() - 1) % 8];
-
-                    Ok(self.chain(OutputChain::tail(&[dirent, name, padding])))
-                }
-
-                Err(error) => Err((self, error)),
-
-                Ok(None) => Ok(self.empty()),
-            }
+            todo!()
         }
 
-        // See rust-lang/rust#61949
-        pub async fn try_stream<'a, S, E, Ref>(
-            self,
-            entries: S,
-        ) -> Result<Done<'o>, (Reply<'o, Fs, Readdir>, E)>
-        where
-            S: Stream<Item = Result<Entry<'a, Ref>, E>> + Send,
-            Ref: Borrow<Fs::Farc> + Send,
-            E: Send,
-        {
-            //TODO: This is about as shitty as it gets
-            let first = entries.boxed().try_next().await;
-            self.try_iter(first.transpose().into_iter())
+        pub fn end(self) -> Done<'o> {
+            todo!()
         }
-    },
+    }
 }
 
 op! {
     Access {
         type RequestBody = &'o proto::AccessIn;
-    },
+        type ReplyTail = ();
+    }
 
-    Request {
+    impl Request {
         pub fn mask(&self) -> AccessFlags {
             AccessFlags::from_bits_truncate(self.body.mask as i32)
         }
-    },
+    }
 
-    Reply {
+    impl Reply {
         pub fn ok(self) -> Done<'o> {
             self.empty()
         }
@@ -320,12 +245,32 @@ op! {
         pub fn permission_denied(self) -> Done<'o> {
             self.fail(Errno::EACCES)
         }
-    },
+    }
 }
 
-impl<'o, Fs: Fuse, O: Operation<'o, Fs>> Reply<'o, Fs, O> {
-    fn done(self) -> Done<'o> {
-        Done::from_result(Ok(()))
+op! {
+    Destroy {
+        type RequestBody = ();
+        type ReplyTail = ();
+    }
+}
+
+mod private {
+    use crate::proto;
+
+    #[derive(Copy, Clone)]
+    pub struct OpenFlags(pub proto::OpenOutFlags);
+
+    impl Default for OpenFlags {
+        fn default() -> Self {
+            OpenFlags(proto::OpenOutFlags::empty())
+        }
+    }
+}
+
+impl<'o, O: Operation<'o>> Reply<'o, O> {
+    fn nop(self) -> Done<'o> {
+        Done::done()
     }
 
     fn empty(self) -> Done<'o> {
@@ -337,7 +282,8 @@ impl<'o, Fs: Fuse, O: Operation<'o, Fs>> Reply<'o, Fs, O> {
     }
 
     fn chain(self, chain: OutputChain<'_>) -> Done<'o> {
-        Done::from_result(session::ok(self.session, self.unique, chain))
+        let result = self.session.ok(self.unique, chain);
+        self.finish(result)
     }
 }
 

@@ -1,21 +1,7 @@
-use std::{
-    collections::HashMap,
-    marker::PhantomData,
-    os::unix::io::RawFd,
-    sync::{Arc, Mutex},
-};
-
-use tokio::{
-    io::unix::AsyncFd,
-    sync::{broadcast, Notify, Semaphore},
-};
-
-use crate::{proto, util::DumbFd, FuseResult, Ino};
+use crate::proto;
+use std::marker::PhantomData;
 
 pub mod io;
-
-#[doc(cfg(feature = "server"))]
-pub mod fs;
 
 #[doc(cfg(feature = "server"))]
 pub mod ops;
@@ -23,65 +9,38 @@ pub mod ops;
 #[doc(cfg(feature = "mount"))]
 pub mod mount;
 
-mod session;
-use fs::Fuse;
-
-#[doc(cfg(feature = "server"))]
-pub struct Session<Fs: Fuse> {
-    _fusermount_fd: DumbFd,
-    session_fd: AsyncFd<RawFd>,
-    proto_minor: u32,
-    fs: Fs,
-    input_semaphore: Arc<Semaphore>,
-    large_buffers: Mutex<Vec<Box<[u8]>>>,
-    known: Mutex<HashMap<Ino, (Fs::Farc, u64)>>,
-    destroy: Notify,
-    interrupt_tx: broadcast::Sender<u64>,
-}
-
-#[doc(cfg(feature = "server"))]
-pub struct Start {
-    fusermount_fd: DumbFd,
-    session_fd: DumbFd,
-}
+pub mod session;
 
 mod private_trait {
-    pub trait Operation<'o, Fs: super::Fuse> {
-        type RequestBody = ();
-        type ReplyTail = ();
-
-        fn consume_errno(_errno: i32, _tail: &mut Self::ReplyTail) {}
+    pub trait Operation<'o> {
+        type RequestBody: crate::proto::Structured<'o>;
+        type ReplyTail: Default;
     }
 }
 
 use private_trait::Operation;
 
-#[doc(cfg(feature = "server"))]
-pub type Op<'o, Fs, O> = (Request<'o, Fs, O>, Reply<'o, Fs, O>, &'o Arc<Session<Fs>>);
+pub type Op<'o, O = ops::Any> = (Request<'o, O>, Reply<'o, O>);
 
 #[doc(cfg(feature = "server"))]
-pub struct Request<'o, Fs: Fuse, O: Operation<'o, Fs>> {
-    header: &'o proto::InHeader,
+pub struct Request<'o, O: Operation<'o>> {
+    header: proto::InHeader,
     body: O::RequestBody,
 }
 
 #[doc(cfg(feature = "server"))]
-pub struct Reply<'o, Fs: Fuse, O: Operation<'o, Fs>> {
-    session: &'o Session<Fs>,
+pub struct Reply<'o, O: Operation<'o>> {
+    session: &'o session::Session,
     unique: u64,
     tail: O::ReplyTail,
 }
 
 #[must_use]
 #[doc(cfg(feature = "server"))]
-pub struct Done<'o>(FuseResult<PhantomData<&'o ()>>);
+pub struct Done<'o>(PhantomData<*mut &'o ()>);
 
 impl Done<'_> {
-    fn from_result(result: FuseResult<()>) -> Self {
-        Done(result.map(|()| PhantomData))
-    }
-
-    fn into_result(self) -> FuseResult<()> {
-        self.0.map(|PhantomData| ())
+    fn done() -> Self {
+        Done(PhantomData)
     }
 }
