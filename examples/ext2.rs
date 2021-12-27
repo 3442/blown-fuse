@@ -16,6 +16,7 @@ use std::{
     ffi::{CStr, OsStr},
     fs::File,
     mem::size_of,
+    ops::ControlFlow,
     os::unix::{ffi::OsStrExt, io::AsRawFd},
     path::{Path, PathBuf},
     time::{Duration, UNIX_EPOCH},
@@ -502,7 +503,10 @@ async fn main_loop(session: Start, fs: Ext2) -> FuseResult<()> {
             }
         });
 
-        result.await?;
+        match result.await? {
+            ControlFlow::Break(()) => break Ok(()),
+            ControlFlow::Continue(()) => continue,
+        }
     }
 }
 

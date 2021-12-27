@@ -2,6 +2,7 @@ use std::{
     future::Future,
     io,
     marker::PhantomData,
+    ops::ControlFlow,
     os::unix::io::{IntoRawFd, RawFd},
     sync::{Arc, Mutex},
 };
@@ -57,7 +58,6 @@ pub enum Dispatch<'o> {
     Statfs(Incoming<'o, ops::Statfs>),
     Readdir(Incoming<'o, ops::Readdir>),
     Access(Incoming<'o, ops::Access>),
-    Destroy(Incoming<'o, ops::Destroy>),
 }
 
 pub struct Incoming<'o, O: Operation<'o>> {
@@ -218,7 +218,6 @@ impl<'o> Dispatch<'o> {
             Statfs(incoming) => incoming.common,
             Readdir(incoming) => incoming.common,
             Access(incoming) => incoming.common,
-            Destroy(incoming) => incoming.common,
         };
 
         common.into_generic_op()
@@ -226,16 +225,21 @@ impl<'o> Dispatch<'o> {
 }
 
 impl Endpoint<'_> {
-    pub async fn receive<'a, F, Fut>(&'a mut self, dispatcher: F) -> FuseResult<()>
+    pub async fn receive<'a, F, Fut>(&'a mut self, dispatcher: F) -> FuseResult<ControlFlow<()>>
     where
         F: FnOnce(Dispatch<'a>) -> Fut,
         Fut: Future<Output = Done<'a>>,
     {
         let buffer = &mut self.local_buffer.0;
         let bytes = loop {
-            let mut readable = self.session.session_fd.readable().await?;
-            let mut read = |fd: &AsyncFd<RawFd>| read(*fd.get_ref(), buffer);
+            let session_fd = &self.session.session_fd;
 
+            let mut readable = tokio::select! {
+                readable = session_fd.readable() => readable?,
+                _ = session_fd.writable() => return Ok(ControlFlow::Break(())),
+            };
+
+            let mut read = |fd: &AsyncFd<RawFd>| read(*fd.get_ref(), buffer);
             let result = match readable.try_io(|fd| read(fd).map_err(io::Error::from)) {
                 Ok(result) => result,
                 Err(_) => continue,
@@ -269,6 +273,8 @@ impl Endpoint<'_> {
             }
 
             match opcode {
+                Destroy => return Ok(ControlFlow::Break(())),
+
                 Lookup => dispatch!(Lookup),
                 Getattr => dispatch!(Getattr),
                 Readlink => dispatch!(Readlink),
@@ -277,7 +283,6 @@ impl Endpoint<'_> {
                 Statfs => dispatch!(Statfs),
                 Readdir => dispatch!(Readdir),
                 Access => dispatch!(Access),
-                Destroy => dispatch!(Destroy),
 
                 _ => {
                     log::warn!("Not implemented: {}", common.header);
@@ -285,13 +290,13 @@ impl Endpoint<'_> {
                     let (_request, reply) = common.into_generic_op();
                     let _ = reply.not_implemented();
 
-                    return Ok(());
+                    return Ok(ControlFlow::Continue(()));
                 }
             }
         };
 
         let _ = dispatcher(dispatch).await;
-        Ok(())
+        Ok(ControlFlow::Continue(()))
     }
 }
 
