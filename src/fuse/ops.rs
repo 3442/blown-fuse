@@ -5,7 +5,11 @@ use std::{
     os::unix::ffi::OsStrExt,
 };
 
-use crate::{proto, util::OutputChain, Errno, Ino, TimeToLive};
+use crate::{
+    proto,
+    util::{page_size, OutputChain},
+    Errno, Ino, TimeToLive,
+};
 
 use super::{
     io::{AccessFlags, Entry, FsInfo, Interruptible, Known},
@@ -124,7 +128,7 @@ op! {
 op! {
     Open {
         type RequestBody = &'o proto::OpenIn;
-        type ReplyTail = private::OpenFlags;
+        type ReplyTail = state::OpenFlags;
     }
 
     impl Reply {
@@ -166,12 +170,42 @@ op! {
 op! {
     Init {
         type RequestBody = &'o proto::InitIn;
-        type ReplyTail = ();
+        type ReplyTail = state::Init;
     }
 
     impl Reply {
         pub fn ok(self) -> Done<'o> {
-            self.nop()
+            let state::Init { kernel_flags, buffer_pages } = self.tail;
+
+            let flags = {
+                use proto::InitFlags;
+
+                let supported = InitFlags::PARALLEL_DIROPS
+                    | InitFlags::ABORT_ERROR
+                    | InitFlags::MAX_PAGES
+                    | InitFlags::CACHE_SYMLINKS;
+
+                kernel_flags & supported
+            };
+
+            let buffer_size = page_size() * buffer_pages;
+
+            // See fs/fuse/dev.c in the kernel source tree for details about max_write
+            let max_write = buffer_size - std::mem::size_of::<(proto::InHeader, proto::WriteIn)>();
+
+            self.single(&proto::InitOut {
+                major: proto::MAJOR_VERSION,
+                minor: proto::TARGET_MINOR_VERSION,
+                max_readahead: 0, //TODO
+                flags: flags.bits(),
+                max_background: 0,       //TODO
+                congestion_threshold: 0, //TODO
+                max_write: max_write.try_into().unwrap(),
+                time_gran: 1, //TODO
+                max_pages: buffer_pages.try_into().unwrap(),
+                padding: Default::default(),
+                unused: Default::default(),
+            })
         }
     }
 }
@@ -255,8 +289,13 @@ op! {
     }
 }
 
-mod private {
+pub(crate) mod state {
     use crate::proto;
+
+    pub struct Init {
+        pub kernel_flags: proto::InitFlags,
+        pub buffer_pages: usize,
+    }
 
     #[derive(Copy, Clone)]
     pub struct OpenFlags(pub proto::OpenOutFlags);
@@ -269,10 +308,6 @@ mod private {
 }
 
 impl<'o, O: Operation<'o>> Reply<'o, O> {
-    fn nop(self) -> Done<'o> {
-        Done::done()
-    }
-
     fn empty(self) -> Done<'o> {
         self.chain(OutputChain::empty())
     }

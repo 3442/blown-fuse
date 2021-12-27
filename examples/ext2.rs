@@ -300,7 +300,7 @@ impl Ext2 {
 }
 
 impl Ext2 {
-    async fn init<'o>(&self, (_, reply): Op<'o, Init>) -> Done<'o> {
+    fn init<'o>(&self, (_, reply): Op<'o, Init>) -> Done<'o> {
         let label = &self.superblock.s_volume_name;
         let label = &label[..=label.iter().position(|byte| *byte == b'\0').unwrap_or(0)];
         let label = CStr::from_bytes_with_nul(label)
@@ -481,7 +481,7 @@ impl Known for Resolved {
 }
 
 async fn main_loop(session: Start, fs: Ext2) -> FuseResult<()> {
-    let session = session.start().await?;
+    let session = session.start(|op| fs.init(op)).await?;
     let mut endpoint = session.endpoint();
 
     loop {

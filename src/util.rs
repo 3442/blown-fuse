@@ -3,7 +3,7 @@ use std::{
     os::unix::io::{IntoRawFd, RawFd},
 };
 
-use nix::unistd::close;
+use nix::unistd::{close, sysconf, SysconfVar};
 use quick_error::quick_error;
 
 quick_error! {
@@ -97,4 +97,8 @@ pub fn display_or<'a, T: fmt::Display + 'a>(
     }
 
     Params(maybe, default)
+}
+
+pub fn page_size() -> usize {
+    sysconf(SysconfVar::PAGE_SIZE).unwrap().unwrap() as usize
 }

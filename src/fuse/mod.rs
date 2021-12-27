@@ -14,7 +14,7 @@ pub mod session;
 mod private_trait {
     pub trait Operation<'o> {
         type RequestBody: crate::proto::Structured<'o>;
-        type ReplyTail: Default;
+        type ReplyTail;
     }
 }
 
