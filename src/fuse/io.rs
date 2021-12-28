@@ -104,6 +104,10 @@ impl<'o, O: Operation<'o>> Reply<'o, O> {
         self.fail(Errno::ENOSYS)
     }
 
+    pub fn not_permitted(self) -> Done<'o> {
+        self.fail(Errno::EPERM)
+    }
+
     pub fn io_error(self) -> Done<'o> {
         self.fail(Errno::EIO)
     }
