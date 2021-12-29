@@ -96,6 +96,19 @@ op! {
         type ReplyTail = ();
     }
 
+    impl Request {
+        pub fn forget_list(&self) -> impl '_ + Iterator<Item = (Ino, u64)> {
+            use proto::OpcodeSelect::*;
+
+            let slice = match self.body {
+                Match((_, slice)) => slice,
+                Alt(single) => std::slice::from_ref(single),
+            };
+
+            slice.iter().map(|forget| (Ino(forget.ino), forget.nlookup))
+        }
+    }
+
     impl Reply {
         pub fn ok(self) -> Done<'o> {
             // No reply for forget requests
@@ -108,6 +121,12 @@ op! {
     Getattr {
         type RequestBody = &'o proto::GetattrIn;
         type ReplyTail = ();
+    }
+
+    impl Request {
+        pub fn handle(&self) -> u64 {
+            self.body.fh
+        }
     }
 
     impl Reply {
@@ -175,15 +194,43 @@ op! {
 
 op! {
     Read {
-        type RequestBody = ();
+        type RequestBody = &'o proto::ReadIn;
         type ReplyTail = ();
+    }
+
+    impl Request {
+        pub fn handle(&self) -> u64 {
+            self.body.fh
+        }
+
+        pub fn offset(&self) -> u64 {
+            self.body.offset
+        }
+
+        pub fn size(&self) -> u32 {
+            self.body.size
+        }
     }
 }
 
 op! {
     Write {
-        type RequestBody = &'o proto::WriteIn;
+        type RequestBody = (&'o proto::WriteIn, &'o [u8]);
         type ReplyTail = ();
+    }
+
+    impl Request {
+        pub fn handle(&self) -> u64 {
+            self.body.0.fh
+        }
+
+        pub fn offset(&self) -> u64 {
+            self.body.0.offset
+        }
+
+        pub fn data(&self) -> &[u8] {
+            self.body.1
+        }
     }
 }
 
@@ -250,6 +297,12 @@ op! {
         type RequestBody = &'o proto::ReleaseIn;
         type ReplyTail = ();
     }
+
+    impl Request {
+        pub fn handle(&self) -> u64 {
+            self.body.fh
+        }
+    }
 }
 
 op! {
@@ -266,9 +319,17 @@ op! {
     }
 
     impl Request {
+        pub fn handle(&self) -> u64 {
+            self.body.read_in.fh
+        }
+
         /// Returns the base offset in the directory stream to read from.
         pub fn offset(&self) -> u64 {
             self.body.read_in.offset
+        }
+
+        pub fn size(&self) -> u32 {
+            self.body.read_in.size
         }
     }
 
@@ -313,13 +374,6 @@ op! {
         pub fn permission_denied(self) -> Done<'o> {
             self.fail(Errno::EACCES)
         }
-    }
-}
-
-op! {
-    Destroy {
-        type RequestBody = ();
-        type ReplyTail = ();
     }
 }
 
