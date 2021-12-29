@@ -41,6 +41,7 @@ pub struct Entry<'a, K> {
     pub ttl: Ttl,
 }
 
+#[derive(Copy, Clone)]
 pub struct FsInfo(proto::StatfsOut);
 
 impl<'o, O: Operation<'o>> Request<'o, O> {
@@ -296,7 +297,7 @@ impl FsInfo {
         })
     }
 
-    pub fn filenames(self, max: u32) -> Self {
+    pub fn max_filename(self, max: u32) -> Self {
         FsInfo(proto::StatfsOut {
             namelen: max,
             ..self.0

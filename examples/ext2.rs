@@ -330,17 +330,17 @@ impl Ext2 {
         let total_inodes = self.superblock.s_inodes_count as u64;
         let free_inodes = self.superblock.s_free_inodes_count as u64;
 
-        reply.info(
-            FsInfo::default()
-                .blocks(
-                    self.block_size() as u32,
-                    total_blocks,
-                    free_blocks,
-                    available_blocks,
-                )
-                .inodes(total_inodes, free_inodes)
-                .filenames(255),
-        )
+        let info = FsInfo::default()
+            .blocks(
+                self.block_size() as u32,
+                total_blocks,
+                free_blocks,
+                available_blocks,
+            )
+            .inodes(total_inodes, free_inodes)
+            .max_filename(255);
+
+        reply.info(&info)
     }
 
     async fn getattr<'o>(&self, (request, reply): Op<'o, Getattr>) -> Done<'o> {

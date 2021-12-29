@@ -311,9 +311,8 @@ op! {
 
     impl Reply {
         /// Replies with filesystem statistics.
-        pub fn info(self, statfs: FsInfo) -> Done<'o> {
-            let statfs: proto::StatfsOut = statfs.into();
-            self.single(&statfs)
+        pub fn info(self, statfs: &FsInfo) -> Done<'o> {
+            self.single(&proto::StatfsOut::from(*statfs))
         }
     }
 }
