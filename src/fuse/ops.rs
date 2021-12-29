@@ -221,6 +221,12 @@ op! {
             self.body.size
         }
     }
+
+    impl Reply {
+        pub fn slice(self, data: &[u8]) -> Done<'o> {
+            self.chain(OutputChain::tail(&[data]))
+        }
+    }
 }
 
 op! {
