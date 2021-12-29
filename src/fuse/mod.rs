@@ -12,13 +12,13 @@ pub mod mount;
 pub mod session;
 
 mod private_trait {
-    pub trait Operation<'o> {
-        type RequestBody: crate::proto::Structured<'o>;
-        type ReplyTail;
-    }
+    pub trait Sealed {}
 }
 
-use private_trait::Operation;
+pub trait Operation<'o>: private_trait::Sealed {
+    type RequestBody: crate::proto::Structured<'o>;
+    type ReplyTail;
+}
 
 pub type Op<'o, O = ops::Any> = (Request<'o, O>, Reply<'o, O>);
 

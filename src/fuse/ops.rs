@@ -18,8 +18,9 @@ use super::{
 
 macro_rules! op {
     { $name:ident $operation:tt } => {
-        pub struct $name(());
+        pub struct $name(std::convert::Infallible);
 
+        impl super::private_trait::Sealed for $name {}
         impl<'o> Operation<'o> for $name $operation
     };
 
