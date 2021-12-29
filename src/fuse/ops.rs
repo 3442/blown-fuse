@@ -246,6 +246,13 @@ op! {
 }
 
 op! {
+    Release {
+        type RequestBody = &'o proto::ReleaseIn;
+        type ReplyTail = ();
+    }
+}
+
+op! {
     Opendir {
         type RequestBody = &'o proto::OpendirIn;
         type ReplyTail = ();
@@ -276,6 +283,13 @@ op! {
         pub fn end(self) -> Done<'o> {
             todo!()
         }
+    }
+}
+
+op! {
+    Releasedir {
+        type RequestBody = &'o proto::ReleasedirIn;
+        type ReplyTail = ();
     }
 }
 
