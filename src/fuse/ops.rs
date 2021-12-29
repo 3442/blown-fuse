@@ -185,12 +185,11 @@ op! {
             self.tail |= proto::OpenOutFlags::DIRECT_IO;
         }
 
-        /// The inode may now be accessed.
         pub fn ok(self) -> Done<'o> {
             self.ok_with_handle(0)
         }
 
-        fn ok_with_handle(self, handle: u64) -> Done<'o> {
+        pub fn ok_with_handle(self, handle: u64) -> Done<'o> {
             let open_flags = self.tail.bits();
 
             self.single(&proto::OpenOut {
@@ -340,6 +339,20 @@ op! {
     Opendir {
         type RequestBody = &'o proto::OpendirIn;
         type ReplyTail = ();
+    }
+
+    impl Reply {
+        pub fn ok(self) -> Done<'o> {
+            self.ok_with_handle(0)
+        }
+
+        pub fn ok_with_handle(self, handle: u64) -> Done<'o> {
+            self.single(&proto::OpenOut {
+                fh: handle,
+                open_flags: 0,
+                padding: Default::default(),
+            })
+        }
     }
 }
 
