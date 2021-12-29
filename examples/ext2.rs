@@ -35,7 +35,7 @@ use blown_fuse::{
     mount::{mount_sync, Options},
     ops::{Getattr, Init, Lookup, Readdir, Readlink, Statfs},
     session::{Dispatch, Start},
-    Done, FuseResult, Ino, Op, TimeToLive,
+    Done, FuseResult, Ino, Op, Ttl,
 };
 
 use bytemuck::{cast_slice, from_bytes, try_from_bytes};
@@ -175,7 +175,7 @@ impl Ext2 {
                     inode,
                     name,
                     offset: position,
-                    ttl: TimeToLive::MAX,
+                    ttl: Ttl::MAX,
                 };
 
                 break Ok(Some((entry, position)));
@@ -372,9 +372,9 @@ impl Ext2 {
         let (reply, inode) = reply.fallible(result)?;
 
         if let Some(inode) = inode {
-            reply.found(inode, TimeToLive::MAX)
+            reply.found(inode, Ttl::MAX)
         } else {
-            reply.not_found(TimeToLive::MAX)
+            reply.not_found(Ttl::MAX)
         }
     }
 
@@ -455,7 +455,7 @@ impl Known for Resolved {
         }
     }
 
-    fn attrs(&self) -> (Attrs, TimeToLive) {
+    fn attrs(&self) -> (Attrs, Ttl) {
         let inode = self.inode;
         let (access, modify, create) = {
             let time = |seconds: u32| (UNIX_EPOCH + Duration::from_secs(seconds.into())).into();
@@ -475,7 +475,7 @@ impl Known for Resolved {
             .times(access, modify, create)
             .links(inode.i_links_count.into());
 
-        (attrs, TimeToLive::MAX)
+        (attrs, Ttl::MAX)
     }
 
     fn unveil(self) {}

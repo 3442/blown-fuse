@@ -7,7 +7,7 @@ use std::{
     ops::{ControlFlow, FromResidual, Try},
 };
 
-use crate::{proto, FuseResult, Ino, TimeToLive, Timestamp};
+use crate::{proto, FuseResult, Ino, Ttl, Timestamp};
 
 use super::{Done, Operation, Reply, Request};
 
@@ -26,7 +26,7 @@ pub enum Interruptible<'o, O: Operation<'o>, T> {
 pub trait Known {
     fn ino(&self) -> Ino;
     fn inode_type(&self) -> EntryType;
-    fn attrs(&self) -> (Attrs, TimeToLive);
+    fn attrs(&self) -> (Attrs, Ttl);
     fn unveil(self);
 }
 
@@ -37,7 +37,7 @@ pub struct Entry<N, K> {
     pub offset: u64,
     pub name: N,
     pub inode: K,
-    pub ttl: TimeToLive,
+    pub ttl: Ttl,
 }
 
 pub struct FsInfo(proto::StatfsOut);

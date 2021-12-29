@@ -8,7 +8,7 @@ use std::{
 use crate::{
     proto,
     util::{page_size, OutputChain},
-    Errno, Ino, TimeToLive,
+    Errno, Ino, Ttl,
 };
 
 use super::{
@@ -60,7 +60,7 @@ op! {
     impl Reply {
         /// The requested entry was found. The FUSE client will become aware of the found inode if
         /// it wasn't before. This result may be cached by the client for up to the given TTL.
-        pub fn found(self, entry: impl Known, ttl: TimeToLive) -> Done<'o> {
+        pub fn found(self, entry: impl Known, ttl: Ttl) -> Done<'o> {
             let (attrs, attrs_ttl) = entry.attrs();
             let attrs = attrs.finish(&entry);
 
@@ -72,7 +72,7 @@ op! {
 
         /// The requested entry was not found in this directory. The FUSE clint may include this
         /// response in negative cache for up to the given TTL.
-        pub fn not_found(self, ttl: TimeToLive) -> Done<'o> {
+        pub fn not_found(self, ttl: Ttl) -> Done<'o> {
             self.single(&make_entry((Ino::NULL, ttl), (Zeroable::zeroed(), Default::default())))
         }
 
@@ -361,8 +361,8 @@ fn c_to_os(string: &CStr) -> &OsStr {
 }
 
 fn make_entry(
-    (Ino(ino), entry_ttl): (Ino, TimeToLive),
-    (attrs, attr_ttl): (proto::Attrs, TimeToLive),
+    (Ino(ino), entry_ttl): (Ino, Ttl),
+    (attrs, attr_ttl): (proto::Attrs, Ttl),
 ) -> proto::EntryOut {
     proto::EntryOut {
         nodeid: ino,
