@@ -29,6 +29,7 @@ pub struct Request<'o, O: Operation<'o>> {
 }
 
 #[doc(cfg(feature = "server"))]
+#[must_use]
 pub struct Reply<'o, O: Operation<'o>> {
     session: &'o session::Session,
     unique: u64,
