@@ -328,6 +328,12 @@ op! {
             self.body.fh
         }
     }
+
+    impl Reply {
+        pub fn ok(self) -> Done<'o> {
+            self.empty()
+        }
+    }
 }
 
 op! {
@@ -487,6 +493,18 @@ op! {
     Releasedir {
         type RequestBody = &'o proto::ReleasedirIn;
         type ReplyTail = ();
+    }
+
+    impl Request {
+        pub fn handle(&self) -> u64 {
+            self.body.release_in.fh
+        }
+    }
+
+    impl Reply {
+        pub fn ok(self) -> Done<'o> {
+            self.empty()
+        }
     }
 }
 
