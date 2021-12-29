@@ -64,6 +64,11 @@ impl Ino {
     /// number, while replies involving the root inode will always report `Ino::ROOT` to the FUSE
     /// client. Therefore, filesystems do not have to be aware of `Ino::ROOT` in most cases.
     pub const ROOT: Self = Ino(proto::ROOT_ID);
+
+    /// Extracts the raw inode number.
+    pub fn as_raw(self) -> u64 {
+        self.0
+    }
 }
 
 impl std::fmt::Display for Ino {

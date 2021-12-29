@@ -27,7 +27,10 @@ use crate::{
     Errno, FuseError, FuseResult,
 };
 
-use super::{ops, Done, Op, Operation, Reply, Request};
+use super::{
+    ops::{self, FromRequest},
+    Done, Op, Operation, Reply, Request,
+};
 
 pub struct Start {
     fusermount_fd: DumbFd,
@@ -357,7 +360,7 @@ impl Start {
 
 impl<'o, O: Operation<'o>> Incoming<'o, O>
 where
-    O::ReplyTail: Default,
+    O::ReplyTail: FromRequest<'o, O>,
 {
     pub fn op(self) -> Result<Op<'o, O>, Done<'o>> {
         try_op(
@@ -398,7 +401,7 @@ impl<O: for<'o> Operation<'o>> Incoming<'_, O> {
 
 impl<O: for<'o> Operation<'o>> Owned<O>
 where
-    for<'o> <O as Operation<'o>>::ReplyTail: Default,
+    for<'o> <O as Operation<'o>>::ReplyTail: FromRequest<'o, O>,
 {
     pub fn op(&self) -> Result<Op<'_, O>, Done<'_>> {
         try_op(&self.session, &self.buffer.0, self.header)
@@ -460,7 +463,7 @@ fn try_op<'o, O: Operation<'o>>(
     header: InHeader,
 ) -> Result<Op<'o, O>, Done<'o>>
 where
-    O::ReplyTail: Default,
+    O::ReplyTail: FromRequest<'o, O>,
 {
     let body = match Structured::toplevel_from(&bytes[HEADER_END..header.len as usize], &header) {
         Ok(body) => body,
@@ -480,7 +483,7 @@ where
     let reply = Reply {
         session,
         unique: header.unique,
-        tail: Default::default(),
+        tail: FromRequest::from_request(&request),
     };
 
     Ok((request, reply))

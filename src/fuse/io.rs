@@ -3,6 +3,7 @@ use nix::{errno::Errno, sys::stat::SFlag};
 
 use std::{
     convert::Infallible,
+    ffi::OsStr,
     future::Future,
     ops::{ControlFlow, FromResidual, Try},
 };
@@ -33,9 +34,9 @@ pub trait Known {
 #[derive(Clone)]
 pub struct Attrs(proto::Attrs);
 
-pub struct Entry<N, K> {
+pub struct Entry<'a, K> {
     pub offset: u64,
-    pub name: N,
+    pub name: &'a OsStr,
     pub inode: K,
     pub ttl: Ttl,
 }

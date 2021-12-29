@@ -9,10 +9,12 @@ use std::{convert::TryFrom, ffi::CStr, fmt};
 use crate::{util::display_or, FuseError, FuseResult};
 
 pub const ROOT_ID: u64 = 1;
-pub const MIN_READ_SIZE: usize = 8192;
 pub const MAJOR_VERSION: u32 = 7;
 pub const TARGET_MINOR_VERSION: u32 = 32;
 pub const REQUIRED_MINOR_VERSION: u32 = 31;
+
+pub const MIN_READ_SIZE: usize = 8192;
+pub const DIRENT_ALIGNMENT_BITS: usize = 3;
 
 pub trait Structured<'o>: Sized {
     fn split_from(bytes: &'o [u8], header: &InHeader, last: bool) -> FuseResult<(Self, &'o [u8])>;

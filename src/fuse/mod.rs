@@ -15,7 +15,7 @@ mod private_trait {
     pub trait Sealed {}
 }
 
-pub trait Operation<'o>: private_trait::Sealed {
+pub trait Operation<'o>: private_trait::Sealed + Sized {
     type RequestBody: crate::proto::Structured<'o>;
     type ReplyTail;
 }

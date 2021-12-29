@@ -1,7 +1,7 @@
-use bytemuck::{bytes_of, Pod, Zeroable};
-
 use std::{
+    convert::Infallible,
     ffi::{CStr, OsStr},
+    marker::PhantomData,
     os::unix::ffi::OsStrExt,
 };
 
@@ -12,15 +12,25 @@ use crate::{
 };
 
 use super::{
-    io::{AccessFlags, Entry, FsInfo, Interruptible, Known},
+    io::{AccessFlags, Entry, EntryType, FsInfo, Interruptible, Known},
+    private_trait::Sealed,
     Done, Operation, Reply, Request,
 };
 
+use bytemuck::{bytes_of, Pod, Zeroable};
+use bytes::BufMut;
+use nix::sys::stat::SFlag;
+
+pub trait FromRequest<'o, O: Operation<'o>> {
+    //TODO: Shouldn't be public
+    fn from_request(request: &Request<'o, O>) -> Self;
+}
+
 macro_rules! op {
     { $name:ident $operation:tt } => {
-        pub struct $name(std::convert::Infallible);
+        pub struct $name(Infallible);
 
-        impl super::private_trait::Sealed for $name {}
+        impl Sealed for $name {}
         impl<'o> Operation<'o> for $name $operation
     };
 
@@ -53,7 +63,7 @@ op! {
     impl Request {
         /// Returns the name of the entry being looked up in this directory.
         pub fn name(&self) -> &OsStr {
-            c_to_os(self.body)
+            OsStr::from_bytes(self.body.to_bytes())
         }
     }
 
@@ -167,12 +177,12 @@ op! {
 op! {
     Open {
         type RequestBody = &'o proto::OpenIn;
-        type ReplyTail = state::OpenFlags;
+        type ReplyTail = proto::OpenOutFlags;
     }
 
     impl Reply {
         pub fn force_direct_io(&mut self) {
-            self.tail.0 |= proto::OpenOutFlags::DIRECT_IO;
+            self.tail |= proto::OpenOutFlags::DIRECT_IO;
         }
 
         /// The inode may now be accessed.
@@ -181,7 +191,7 @@ op! {
         }
 
         fn ok_with_handle(self, handle: u64) -> Done<'o> {
-            let open_flags = self.tail.0.bits();
+            let open_flags = self.tail.bits();
 
             self.single(&proto::OpenOut {
                 fh: handle,
@@ -314,36 +324,147 @@ op! {
 
 op! {
     Readdir {
-        type RequestBody = &'o proto::ReaddirIn;
-        type ReplyTail = ();
+        type RequestBody = proto::OpcodeSelect<
+            &'o proto::ReaddirPlusIn,
+            &'o proto::ReaddirIn,
+            { proto::Opcode::ReaddirPlus as u32 },
+        >;
+
+        type ReplyTail = state::Readdir<()>;
     }
 
     impl Request {
         pub fn handle(&self) -> u64 {
-            self.body.read_in.fh
+            self.read_in().fh
         }
 
         /// Returns the base offset in the directory stream to read from.
         pub fn offset(&self) -> u64 {
-            self.body.read_in.offset
+            self.read_in().offset
         }
 
         pub fn size(&self) -> u32 {
-            self.body.read_in.size
+            self.read_in().size
+        }
+
+        fn read_in(&self) -> &proto::ReadIn {
+            use proto::OpcodeSelect::*;
+
+            match &self.body {
+                Match(readdir_plus) => &readdir_plus.read_in,
+                Alt(readdir) => &readdir.read_in,
+            }
         }
     }
 
     impl Reply {
-        pub fn entry<N>(self, inode: Entry<N, impl Known>) -> Interruptible<'o, Readdir, ()>
+        pub fn buffered<B>(self, buffer: B) -> Reply<'o, BufferedReaddir<B>>
         where
-            N: AsRef<OsStr>,
+            B: BufMut + AsRef<[u8]>,
         {
-            todo!()
+            assert!(buffer.as_ref().is_empty());
+
+            let state::Readdir { max_read, is_plus, buffer: (), } = self.tail;
+
+            Reply {
+                session: self.session,
+                unique: self.unique,
+                tail: state::Readdir { max_read, is_plus, buffer, },
+            }
+        }
+    }
+}
+
+pub struct BufferedReaddir<B>(Infallible, PhantomData<B>);
+
+impl<B> Sealed for BufferedReaddir<B> {}
+
+impl<'o, B> Operation<'o> for BufferedReaddir<B> {
+    type RequestBody = (); // Never actually created
+    type ReplyTail = state::Readdir<B>;
+}
+
+impl<'o, B: BufMut + AsRef<[u8]>> Reply<'o, BufferedReaddir<B>> {
+    pub fn entry(mut self, entry: Entry<impl Known>) -> Interruptible<'o, BufferedReaddir<B>, ()> {
+        let entry_header_len = if self.tail.is_plus {
+            std::mem::size_of::<proto::DirentPlus>()
+        } else {
+            std::mem::size_of::<proto::Dirent>()
+        };
+
+        let name = entry.name.as_bytes();
+        let padding_len = dirent_pad_bytes(entry_header_len + name.len());
+
+        let buffer = &mut self.tail.buffer;
+        let remaining = buffer
+            .remaining_mut()
+            .min(self.tail.max_read - buffer.as_ref().len());
+
+        let record_len = entry_header_len + name.len() + padding_len;
+        if remaining < record_len {
+            if buffer.as_ref().is_empty() {
+                log::error!("Buffer for readdir req #{} is too small", self.unique);
+                return Interruptible::Interrupted(self.fail(Errno::ENOBUFS));
+            }
+
+            return Interruptible::Interrupted(self.end());
         }
 
-        pub fn end(self) -> Done<'o> {
-            todo!()
+        let entry_type = match entry.inode.inode_type() {
+            EntryType::Fifo => SFlag::S_IFIFO,
+            EntryType::CharacterDevice => SFlag::S_IFCHR,
+            EntryType::Directory => SFlag::S_IFDIR,
+            EntryType::BlockDevice => SFlag::S_IFBLK,
+            EntryType::File => SFlag::S_IFREG,
+            EntryType::Symlink => SFlag::S_IFLNK,
+            EntryType::Socket => SFlag::S_IFSOCK,
+        };
+
+        let ino = entry.inode.ino();
+        let dirent = proto::Dirent {
+            ino: ino.as_raw(),
+            off: entry.offset,
+            namelen: name.len().try_into().unwrap(),
+            entry_type: entry_type.bits() >> 12,
+        };
+
+        enum Ent {
+            Dirent(proto::Dirent),
+            DirentPlus(proto::DirentPlus),
         }
+
+        let ent = if self.tail.is_plus {
+            let (attrs, attrs_ttl) = entry.inode.attrs();
+            let attrs = attrs.finish(&entry.inode);
+            let entry_out = make_entry((ino, entry.ttl), (attrs, attrs_ttl));
+
+            if name != ".".as_bytes() && name != "..".as_bytes() {
+                entry.inode.unveil();
+            }
+
+            Ent::DirentPlus(proto::DirentPlus { entry_out, dirent })
+        } else {
+            Ent::Dirent(dirent)
+        };
+
+        let entry_header = match &ent {
+            Ent::Dirent(dirent) => bytes_of(dirent),
+            Ent::DirentPlus(dirent_plus) => bytes_of(dirent_plus),
+        };
+
+        buffer.put_slice(entry_header);
+        buffer.put_slice(name);
+        buffer.put_slice(&[0; 7][..padding_len]);
+
+        if remaining - record_len >= entry_header.len() + (1 << proto::DIRENT_ALIGNMENT_BITS) {
+            Interruptible::Completed(self, ())
+        } else {
+            Interruptible::Interrupted(self.end())
+        }
+    }
+
+    pub fn end(self) -> Done<'o> {
+        self.inner(|this| this.tail.buffer.as_ref())
     }
 }
 
@@ -385,12 +506,31 @@ pub(crate) mod state {
         pub buffer_pages: usize,
     }
 
-    #[derive(Copy, Clone)]
-    pub struct OpenFlags(pub proto::OpenOutFlags);
+    pub struct Readdir<B> {
+        pub max_read: usize,
+        pub is_plus: bool,
+        pub buffer: B,
+    }
+}
 
-    impl Default for OpenFlags {
-        fn default() -> Self {
-            OpenFlags(proto::OpenOutFlags::empty())
+impl<'o, O: Operation<'o>> FromRequest<'o, O> for () {
+    fn from_request(_request: &Request<'o, O>) -> Self {
+        ()
+    }
+}
+
+impl<'o> FromRequest<'o, Open> for proto::OpenOutFlags {
+    fn from_request(_request: &Request<'o, Open>) -> Self {
+        proto::OpenOutFlags::empty()
+    }
+}
+
+impl<'o> FromRequest<'o, Readdir> for state::Readdir<()> {
+    fn from_request(request: &Request<'o, Readdir>) -> Self {
+        state::Readdir {
+            max_read: request.size() as usize,
+            is_plus: matches!(request.body, proto::OpcodeSelect::Match(_)),
+            buffer: (),
         }
     }
 }
@@ -404,14 +544,17 @@ impl<'o, O: Operation<'o>> Reply<'o, O> {
         self.chain(OutputChain::tail(&[bytes_of(single)]))
     }
 
+    fn inner(self, deref: impl FnOnce(&Self) -> &[u8]) -> Done<'o> {
+        let result = self
+            .session
+            .ok(self.unique, OutputChain::tail(&[deref(&self)]));
+        self.finish(result)
+    }
+
     fn chain(self, chain: OutputChain<'_>) -> Done<'o> {
         let result = self.session.ok(self.unique, chain);
         self.finish(result)
     }
-}
-
-fn c_to_os(string: &CStr) -> &OsStr {
-    OsStr::from_bytes(string.to_bytes())
 }
 
 fn make_entry(
@@ -427,4 +570,9 @@ fn make_entry(
         attr_valid_nsec: attr_ttl.nanoseconds,
         attr: attrs,
     }
+}
+
+fn dirent_pad_bytes(entry_len: usize) -> usize {
+    const ALIGN_MASK: usize = (1 << proto::DIRENT_ALIGNMENT_BITS) - 1;
+    ((entry_len + ALIGN_MASK) & !ALIGN_MASK) - entry_len
 }

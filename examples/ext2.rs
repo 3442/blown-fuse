@@ -147,7 +147,7 @@ impl Ext2 {
         &self,
         inode: &'static Inode,
         start: u64,
-    ) -> impl Stream<Item = Result<Entry<&'static OsStr, Resolved>, Errno>> + '_ {
+    ) -> impl Stream<Item = Result<Entry<'static, Resolved>, Errno>> + '_ {
         stream::try_unfold(start, move |mut position| async move {
             loop {
                 if position == inode.i_size as u64 {
@@ -417,7 +417,8 @@ impl Ext2 {
     }
 
     async fn readdir<'o>(&self, (request, reply): Op<'o, Readdir>) -> Done<'o> {
-        let (mut reply, inode) = reply.fallible(self.inode(request.ino()))?;
+        let (reply, inode) = reply.fallible(self.inode(request.ino()))?;
+        let mut reply = reply.buffered(Vec::new());
 
         let stream = self.directory_stream(inode, request.offset());
         tokio::pin!(stream);
