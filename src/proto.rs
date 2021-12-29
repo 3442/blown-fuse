@@ -295,6 +295,13 @@ pub struct WriteIn {
 
 #[derive(Pod, Zeroable, Copy, Clone)]
 #[repr(C)]
+pub struct WriteOut {
+    pub size: u32,
+    pub padding: u32,
+}
+
+#[derive(Pod, Zeroable, Copy, Clone)]
+#[repr(C)]
 pub struct StatfsOut {
     pub blocks: u64,
     pub bfree: u64,

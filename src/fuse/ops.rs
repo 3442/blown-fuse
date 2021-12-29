@@ -226,7 +226,7 @@ op! {
 op! {
     Write {
         type RequestBody = (&'o proto::WriteIn, &'o [u8]);
-        type ReplyTail = ();
+        type ReplyTail = state::Write;
     }
 
     impl Request {
@@ -240,6 +240,16 @@ op! {
 
         pub fn data(&self) -> &[u8] {
             self.body.1
+        }
+    }
+
+    impl Reply {
+        pub fn all(self) -> Done<'o> {
+            let size = self.tail.size;
+            self.single(&proto::WriteOut {
+                size,
+                padding: Default::default(),
+            })
         }
     }
 }
@@ -511,6 +521,10 @@ pub(crate) mod state {
         pub is_plus: bool,
         pub buffer: B,
     }
+
+    pub struct Write {
+        pub size: u32,
+    }
 }
 
 impl<'o, O: Operation<'o>> FromRequest<'o, O> for () {
@@ -522,6 +536,22 @@ impl<'o, O: Operation<'o>> FromRequest<'o, O> for () {
 impl<'o> FromRequest<'o, Open> for proto::OpenOutFlags {
     fn from_request(_request: &Request<'o, Open>) -> Self {
         proto::OpenOutFlags::empty()
+    }
+}
+
+impl<'o> FromRequest<'o, Write> for state::Write {
+    fn from_request(request: &Request<'o, Write>) -> Self {
+        let (body, data) = request.body;
+
+        if body.size as usize != data.len() {
+            log::warn!(
+                "Write size={} differs from data.len={}",
+                body.size,
+                data.len()
+            );
+        }
+
+        state::Write { size: body.size }
     }
 }
 
