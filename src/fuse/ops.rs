@@ -85,6 +85,25 @@ op! {
 }
 
 op! {
+    Forget {
+        type RequestBody = proto::OpcodeSelect<
+            (&'o proto::BatchForgetIn, &'o [proto::ForgetOne]),
+            &'o proto::ForgetOne,
+            { proto::Opcode::BatchForget as u32 },
+        >;
+
+        type ReplyTail = ();
+    }
+
+    impl Reply {
+        pub fn ok(self) -> Done<'o> {
+            // No reply for forget requests
+            Done::done()
+        }
+    }
+}
+
+op! {
     Getattr {
         type RequestBody = &'o proto::GetattrIn;
         type ReplyTail = ();

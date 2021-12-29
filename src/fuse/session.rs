@@ -51,6 +51,7 @@ pub struct Endpoint<'a> {
 
 pub enum Dispatch<'o> {
     Lookup(Incoming<'o, ops::Lookup>),
+    Forget(Incoming<'o, ops::Forget>),
     Getattr(Incoming<'o, ops::Getattr>),
     Readlink(Incoming<'o, ops::Readlink>),
     Read(Incoming<'o, ops::Read>),
@@ -112,7 +113,9 @@ impl Session {
 
         let (header, opcode) = InHeader::from_bytes(&buffer.0[..bytes])?;
         let body = match opcode {
-            proto::Opcode::Init => <&proto::InitIn>::toplevel_from(&buffer.0[HEADER_END..bytes])?,
+            proto::Opcode::Init => {
+                <&proto::InitIn>::toplevel_from(&buffer.0[HEADER_END..bytes], &header)?
+            }
 
             _ => {
                 log::error!("First message from kernel is not Init, but {:?}", opcode);
@@ -211,6 +214,7 @@ impl<'o> Dispatch<'o> {
 
         let common = match self {
             Lookup(incoming) => incoming.common,
+            Forget(incoming) => incoming.common,
             Getattr(incoming) => incoming.common,
             Readlink(incoming) => incoming.common,
             Read(incoming) => incoming.common,
@@ -276,6 +280,7 @@ impl Endpoint<'_> {
                 Destroy => return Ok(ControlFlow::Break(())),
 
                 Lookup => dispatch!(Lookup),
+                Forget => dispatch!(Forget),
                 Getattr => dispatch!(Getattr),
                 Readlink => dispatch!(Readlink),
                 Read => dispatch!(Read),
@@ -283,6 +288,7 @@ impl Endpoint<'_> {
                 Statfs => dispatch!(Statfs),
                 Readdir => dispatch!(Readdir),
                 Access => dispatch!(Access),
+                BatchForget => dispatch!(Forget),
 
                 _ => {
                     log::warn!("Not implemented: {}", common.header);
@@ -456,7 +462,7 @@ fn try_op<'o, O: Operation<'o>>(
 where
     O::ReplyTail: Default,
 {
-    let body = match Structured::toplevel_from(&bytes[HEADER_END..header.len as usize]) {
+    let body = match Structured::toplevel_from(&bytes[HEADER_END..header.len as usize], &header) {
         Ok(body) => body,
         Err(error) => {
             log::error!("Parsing request {}: {}", header, error);
