@@ -32,7 +32,7 @@ pub use nix::errno::Errno;
 
 pub use util::{FuseError, FuseResult};
 
-#[derive(Copy, Clone, Default, Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub struct Ttl {
     seconds: u64,
     nanoseconds: u32,
@@ -73,6 +73,11 @@ impl std::fmt::Display for Ino {
 }
 
 impl Ttl {
+    pub const NULL: Self = Ttl {
+        seconds: 0,
+        nanoseconds: 0,
+    };
+
     pub const MAX: Self = Ttl {
         seconds: u64::MAX,
         nanoseconds: u32::MAX,

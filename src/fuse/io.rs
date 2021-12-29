@@ -7,7 +7,7 @@ use std::{
     ops::{ControlFlow, FromResidual, Try},
 };
 
-use crate::{proto, FuseResult, Ino, Ttl, Timestamp};
+use crate::{proto, FuseResult, Ino, Timestamp, Ttl};
 
 use super::{Done, Operation, Reply, Request};
 

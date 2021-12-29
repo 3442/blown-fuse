@@ -73,7 +73,7 @@ op! {
         /// The requested entry was not found in this directory. The FUSE clint may include this
         /// response in negative cache for up to the given TTL.
         pub fn not_found(self, ttl: Ttl) -> Done<'o> {
-            self.single(&make_entry((Ino::NULL, ttl), (Zeroable::zeroed(), Default::default())))
+            self.single(&make_entry((Ino::NULL, ttl), (Zeroable::zeroed(), Ttl::NULL)))
         }
 
         /// The requested entry was not found in this directory, but unlike [`Reply::not_found()`]
