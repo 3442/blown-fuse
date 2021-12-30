@@ -15,6 +15,7 @@ use super::{Done, Operation, Reply, Request};
 #[doc(no_inline)]
 pub use nix::{
     dir::Type as EntryType,
+    fcntl::OFlag as OpenFlags,
     sys::stat::Mode,
     unistd::{AccessFlags, Gid, Pid, Uid},
 };

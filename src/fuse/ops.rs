@@ -12,7 +12,7 @@ use crate::{
 };
 
 use super::{
-    io::{AccessFlags, Entry, EntryType, FsInfo, Interruptible, Known},
+    io::{AccessFlags, Entry, EntryType, FsInfo, Interruptible, Known, OpenFlags},
     private_trait::Sealed,
     Done, Operation, Reply, Request,
 };
@@ -178,6 +178,12 @@ op! {
     Open {
         type RequestBody = &'o proto::OpenIn;
         type ReplyTail = proto::OpenOutFlags;
+    }
+
+    impl Request {
+        pub fn flags(&self) -> OpenFlags {
+            OpenFlags::from_bits_truncate(self.body.flags.try_into().unwrap_or_default())
+        }
     }
 
     impl Reply {
