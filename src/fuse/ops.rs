@@ -278,7 +278,26 @@ op! {
             let flags = {
                 use proto::InitFlags;
 
-                let supported = InitFlags::PARALLEL_DIROPS
+                //TODO: Conditions for these feature flags
+                // - Locks
+                // - ASYNC_DIO
+                // - WRITEBACK_CACHE
+                // - NO_OPEN_SUPPORT
+                // - HANDLE_KILLPRIV
+                // - POSIX_ACL
+                // - NO_OPENDIR_SUPPORT
+                // - EXPLICIT_INVAL_DATA
+
+                let supported = InitFlags::ASYNC_READ
+                    | InitFlags::FILE_OPS
+                    | InitFlags::ATOMIC_O_TRUNC
+                    | InitFlags::EXPORT_SUPPORT
+                    | InitFlags::BIG_WRITES
+                    | InitFlags::HAS_IOCTL_DIR
+                    | InitFlags::AUTO_INVAL_DATA
+                    | InitFlags::DO_READDIRPLUS
+                    | InitFlags::READDIRPLUS_AUTO
+                    | InitFlags::PARALLEL_DIROPS
                     | InitFlags::ABORT_ERROR
                     | InitFlags::MAX_PAGES
                     | InitFlags::CACHE_SYMLINKS;

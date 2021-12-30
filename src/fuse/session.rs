@@ -304,6 +304,7 @@ impl Endpoint<'_> {
                 Releasedir => dispatch!(Releasedir),
                 Access => dispatch!(Access),
                 BatchForget => dispatch!(Forget),
+                ReaddirPlus => dispatch!(Readdir),
 
                 _ => {
                     log::warn!("Not implemented: {}", common.header);
