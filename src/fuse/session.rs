@@ -73,7 +73,7 @@ pub struct Incoming<'o, O: Operation<'o>> {
     _phantom: PhantomData<O>,
 }
 
-pub struct Owned<O: for<'o> Operation<'o>> {
+pub struct Owned<O> {
     session: Arc<Session>,
     buffer: Buffer,
     header: InHeader,
@@ -174,7 +174,7 @@ impl Session {
             },
         };
 
-        let _ = init((request, reply));
+        init((request, reply)).consume();
         Ok(Handshake::Done)
     }
 
@@ -240,10 +240,10 @@ impl<'o> Dispatch<'o> {
 }
 
 impl Endpoint<'_> {
-    pub async fn receive<'a, F, Fut>(&'a mut self, dispatcher: F) -> FuseResult<ControlFlow<()>>
+    pub async fn receive<'o, F, Fut>(&'o mut self, dispatcher: F) -> FuseResult<ControlFlow<()>>
     where
-        F: FnOnce(Dispatch<'a>) -> Fut,
-        Fut: Future<Output = Done<'a>>,
+        F: FnOnce(Dispatch<'o>) -> Fut,
+        Fut: Future<Output = Done<'o>>,
     {
         let buffer = &mut self.local_buffer.0;
         let bytes = loop {
@@ -309,14 +309,14 @@ impl Endpoint<'_> {
                     log::warn!("Not implemented: {}", common.header);
 
                     let (_request, reply) = common.into_generic_op();
-                    let _ = reply.not_implemented();
+                    reply.not_implemented().consume();
 
                     return Ok(ControlFlow::Continue(()));
                 }
             }
         };
 
-        let _ = dispatcher(dispatch).await;
+        dispatcher(dispatch).await.consume();
         Ok(ControlFlow::Continue(()))
     }
 }
@@ -381,10 +381,8 @@ where
             self.common.header,
         )
     }
-}
 
-impl<O: for<'o> Operation<'o>> Incoming<'_, O> {
-    pub async fn owned(self) -> Owned<O> {
+    pub async fn owned(self) -> (Done<'o>, Owned<O>) {
         let session = self.common.session;
 
         let (buffer, permit) = {
@@ -395,19 +393,21 @@ impl<O: for<'o> Operation<'o>> Incoming<'_, O> {
                 .expect("Buffer semaphore error");
 
             let mut buffers = session.buffers.lock().unwrap();
-            let mut buffer = buffers.pop().expect("Buffer semaphore out of sync");
+            let buffer = buffers.pop().expect("Buffer semaphore out of sync");
+            let buffer = std::mem::replace(self.common.buffer, buffer);
 
-            std::mem::swap(&mut buffer, self.common.buffer);
             (buffer, permit)
         };
 
-        Owned {
+        let owned = Owned {
             session: Arc::clone(session),
             buffer,
             header: self.common.header,
             _permit: permit,
             _phantom: PhantomData,
-        }
+        };
+
+        (Done::done(), owned)
     }
 }
 
@@ -415,12 +415,19 @@ impl<O: for<'o> Operation<'o>> Owned<O>
 where
     for<'o> <O as Operation<'o>>::ReplyTail: FromRequest<'o, O>,
 {
-    pub fn op(&self) -> Result<Op<'_, O>, Done<'_>> {
-        try_op(&self.session, &self.buffer.0, self.header)
+    pub async fn op<'o, F, Fut>(&'o self, handler: F)
+    where
+        F: FnOnce(Op<'o, O>) -> Fut,
+        Fut: Future<Output = Done<'o>>,
+    {
+        match try_op(&self.session, &self.buffer.0, self.header) {
+            Ok(op) => handler(op).await.consume(),
+            Err(done) => done.consume(),
+        }
     }
 }
 
-impl<O: for<'o> Operation<'o>> Drop for Owned<O> {
+impl<O> Drop for Owned<O> {
     fn drop(&mut self) {
         if let Ok(mut buffers) = self.session.buffers.lock() {
             let empty = Buffer(Vec::new().into_boxed_slice());

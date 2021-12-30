@@ -38,10 +38,14 @@ pub struct Reply<'o, O: Operation<'o>> {
 
 #[must_use]
 #[doc(cfg(feature = "server"))]
-pub struct Done<'o>(PhantomData<*mut &'o ()>);
+pub struct Done<'o>(PhantomData<&'o mut &'o ()>);
 
 impl Done<'_> {
     fn done() -> Self {
         Done(PhantomData)
+    }
+
+    fn consume(self) {
+        drop(self);
     }
 }
