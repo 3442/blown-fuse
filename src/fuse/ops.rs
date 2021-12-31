@@ -63,7 +63,7 @@ op! {
     impl Request {
         /// Returns the name of the entry being looked up in this directory.
         pub fn name(&self) -> &OsStr {
-            OsStr::from_bytes(self.body.to_bytes())
+            c_to_os(self.body)
         }
     }
 
@@ -361,6 +361,135 @@ op! {
 }
 
 op! {
+    Setxattr {
+        // header, name, value
+        type RequestBody = (&'o proto::SetxattrIn, &'o CStr, &'o [u8]);
+        type ReplyTail = ();
+    }
+
+    //TODO: flags
+    impl Request {
+        pub fn name(&self) -> &OsStr {
+            let (_header, name, _value) = self.body;
+            c_to_os(name)
+        }
+
+        pub fn value(&self) -> &[u8] {
+            let (_header, _name, value) = self.body;
+            value
+        }
+    }
+
+    impl Reply {
+        pub fn ok(self) -> Done<'o> {
+            self.empty()
+        }
+
+        pub fn not_found(self) -> Done<'o> {
+            self.fail(Errno::ENODATA)
+        }
+    }
+}
+
+op! {
+    Getxattr {
+        type RequestBody = (&'o proto::GetxattrIn, &'o CStr);
+        type ReplyTail = state::ReadXattr;
+    }
+
+    impl Request {
+        pub fn size(&self) -> u32 {
+            self.body.0.size
+        }
+
+        pub fn name(&self) -> &OsStr {
+            c_to_os(self.body.1)
+        }
+    }
+
+    impl Reply {
+        pub fn slice(self, value: &[u8]) -> Done<'o> {
+            let size = value.len().try_into().expect("Extremely large xattr");
+            if self.tail.size == 0 {
+                return self.value_size(size);
+            } else if self.tail.size < size {
+                return self.buffer_too_small();
+            }
+
+            self.chain(OutputChain::tail(&[value]))
+        }
+
+        pub fn value_size(self, size: u32) -> Done<'o> {
+            assert_eq!(self.tail.size, 0);
+
+            self.single(&proto::GetxattrOut {
+                size,
+                padding: Default::default(),
+            })
+        }
+
+        pub fn buffer_too_small(self) -> Done<'o> {
+            self.fail(Errno::ERANGE)
+        }
+
+        pub fn not_found(self) -> Done<'o> {
+            self.fail(Errno::ENODATA)
+        }
+    }
+}
+
+op! {
+    Listxattr {
+        type RequestBody = &'o proto::ListxattrIn;
+        type ReplyTail = state::ReadXattr;
+    }
+
+    impl Request {
+        pub fn size(&self) -> u32 {
+            self.body.getxattr_in.size
+        }
+    }
+
+    impl Reply {
+        //TODO: buffered(), gather()
+
+        pub fn value_size(self, size: u32) -> Done<'o> {
+            assert_eq!(self.tail.size, 0);
+
+            self.single(&proto::ListxattrOut {
+                getxattr_out: proto::GetxattrOut {
+                    size,
+                    padding: Default::default(),
+                },
+            })
+        }
+
+        pub fn buffer_too_small(self) -> Done<'o> {
+            self.fail(Errno::ERANGE)
+        }
+    }
+}
+
+op! {
+    Removexattr {
+        type RequestBody = &'o CStr;
+        type ReplyTail = ();
+    }
+
+    impl Request {
+        pub fn name(&self) -> &OsStr {
+            c_to_os(self.body)
+        }
+    }
+
+    impl Reply {
+        pub fn ok(self) -> Done<'o> {
+            self.empty()
+        }
+    }
+}
+
+op! {
     Opendir {
         type RequestBody = &'o proto::OpendirIn;
         type ReplyTail = ();
@@ -578,13 +707,17 @@ pub(crate) mod state {
     }
 
     pub struct Readdir<B> {
-        pub max_read: usize,
-        pub is_plus: bool,
-        pub buffer: B,
+        pub(super) max_read: usize,
+        pub(super) is_plus: bool,
+        pub(super) buffer: B,
     }
 
     pub struct Write {
-        pub size: u32,
+        pub(super) size: u32,
+    }
+
+    pub struct ReadXattr {
+        pub(super) size: u32,
     }
 }
 
@@ -666,4 +799,8 @@ fn make_entry(
 fn dirent_pad_bytes(entry_len: usize) -> usize {
     const ALIGN_MASK: usize = (1 << proto::DIRENT_ALIGNMENT_BITS) - 1;
     ((entry_len + ALIGN_MASK) & !ALIGN_MASK) - entry_len
+}
+
+fn c_to_os(c_str: &CStr) -> &OsStr {
+    OsStr::from_bytes(c_str.to_bytes())
 }

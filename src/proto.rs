@@ -348,8 +348,21 @@ pub struct GetxattrIn {
 
 #[derive(Pod, Zeroable, Copy, Clone)]
 #[repr(C)]
+pub struct GetxattrOut {
+    pub size: u32,
+    pub padding: u32,
+}
+
+#[derive(Pod, Zeroable, Copy, Clone)]
+#[repr(C)]
 pub struct ListxattrIn {
     pub getxattr_in: GetxattrIn,
+}
+
+#[derive(Pod, Zeroable, Copy, Clone)]
+#[repr(C)]
+pub struct ListxattrOut {
+    pub getxattr_out: GetxattrOut,
 }
 
 #[derive(Pod, Zeroable, Copy, Clone)]
@@ -593,6 +606,19 @@ where
         let (first, bytes) = T::split_from(bytes, header, false)?;
         let (second, end) = U::split_from(bytes, header, last)?;
         Ok(((first, second), end))
+    }
+}
+
+impl<'o, T, U, V> Structured<'o> for (T, U, V)
+where
+    T: Structured<'o>,
+    U: Structured<'o>,
+    V: Structured<'o>,
+{
+    fn split_from(bytes: &'o [u8], header: &InHeader, last: bool) -> FuseResult<(Self, &'o [u8])> {
+        let (first, bytes) = T::split_from(bytes, header, false)?;
+        let ((second, third), end) = <(U, V)>::split_from(bytes, header, last)?;
+        Ok(((first, second, third), end))
     }
 }
 
