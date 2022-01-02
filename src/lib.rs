@@ -12,19 +12,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub use nix;
 
-#[cfg(any(feature = "server", doc))]
-#[doc(cfg(feature = "server"))]
 pub use crate::fuse::*;
-
-#[cfg(any(feature = "client", doc, test))]
-#[doc(cfg(feature = "client"))]
 pub mod client;
 
 mod proto;
 mod util;
 
-#[cfg(any(feature = "server", doc))]
-#[doc(cfg(feature = "server"))]
 mod fuse;
 
 #[doc(no_inline)]
