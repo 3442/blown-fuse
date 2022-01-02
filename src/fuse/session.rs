@@ -86,6 +86,8 @@ pub struct Owned<O> {
 }
 
 impl Session {
+    // Does not seem like 'a can be elided here
+    #[allow(clippy::needless_lifetimes)]
     pub fn endpoint<'a>(self: &'a Arc<Self>) -> Endpoint<'a> {
         Endpoint {
             session: self,
@@ -185,8 +187,7 @@ impl Session {
     fn send(&self, unique: u64, error: i32, output: OutputChain<'_>) -> FuseResult<()> {
         let after_header: usize = output
             .iter()
-            .map(<[_]>::iter)
-            .flatten()
+            .flat_map(<[_]>::iter)
             .copied()
             .map(<[_]>::len)
             .sum();
@@ -203,8 +204,7 @@ impl Session {
         let output = output.preceded(&header);
         let buffers: SmallVec<[_; 8]> = output
             .iter()
-            .map(<[_]>::iter)
-            .flatten()
+            .flat_map(<[_]>::iter)
             .copied()
             .filter(|slice| !slice.is_empty())
             .map(IoVec::from_slice)
@@ -420,7 +420,7 @@ where
             _phantom: PhantomData,
         };
 
-        (Done::done(), owned)
+        (Done::new(), owned)
     }
 }
 

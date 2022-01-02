@@ -33,7 +33,7 @@ pub struct Reply<'o, O: Operation<'o>> {
 pub struct Done<'o>(PhantomData<&'o mut &'o ()>);
 
 impl Done<'_> {
-    fn done() -> Self {
+    fn new() -> Self {
         Done(PhantomData)
     }
 

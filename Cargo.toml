@@ -1,10 +1,14 @@
 [package]
 name = "blown-fuse"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Alejandro Soto <alejandro@34project.org>"]
 edition = "2021"
 description = "Async filesystem in userspace (FUSE) daemon library"
 license = "LGPL-3.0-or-later"
+readme = "README.md"
+repository = "https://github.com/3442/blown-fuse"
+keywords = ["fuse", "filesystem"]
+categories = ["filesystem", "os::unix-apis"]
 
 [dependencies]
 bitflags = "1.3.2"

@@ -122,7 +122,7 @@ op! {
     impl Reply {
         pub fn ok(self) -> Done<'o> {
             // No reply for forget requests
-            Done::done()
+            Done::new()
         }
     }
 }
@@ -722,9 +722,7 @@ pub(crate) mod state {
 }
 
 impl<'o, O: Operation<'o>> FromRequest<'o, O> for () {
-    fn from_request(_request: &Request<'o, O>) -> Self {
-        ()
-    }
+    fn from_request(_request: &Request<'o, O>) -> Self {}
 }
 
 impl<'o> FromRequest<'o, Open> for proto::OpenOutFlags {

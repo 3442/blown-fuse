@@ -128,7 +128,7 @@ impl<'o, O: Operation<'o>> Reply<'o, O> {
             log::error!("Replying to request {}: {}", self.unique, error);
         }
 
-        Done::done()
+        Done::new()
     }
 }
 
@@ -207,10 +207,12 @@ impl<'o, O: Operation<'o>, T> Try for Interruptible<'o, O, T> {
 }
 
 impl Attrs {
+    #[must_use]
     pub fn size(self, size: u64) -> Self {
         Attrs(proto::Attrs { size, ..self.0 })
     }
 
+    #[must_use]
     pub fn owner(self, uid: Uid, gid: Gid) -> Self {
         Attrs(proto::Attrs {
             uid: uid.as_raw(),
@@ -219,6 +221,7 @@ impl Attrs {
         })
     }
 
+    #[must_use]
     pub fn mode(self, mode: Mode) -> Self {
         Attrs(proto::Attrs {
             mode: mode.bits(),
@@ -226,6 +229,7 @@ impl Attrs {
         })
     }
 
+    #[must_use]
     pub fn blocks(self, blocks: u64, block_size: u32) -> Self {
         Attrs(proto::Attrs {
             blocks,
@@ -234,6 +238,7 @@ impl Attrs {
         })
     }
 
+    #[must_use]
     pub fn times(self, access: Timestamp, modify: Timestamp, create: Timestamp) -> Self {
         Attrs(proto::Attrs {
             atime: access.seconds,
@@ -246,6 +251,7 @@ impl Attrs {
         })
     }
 
+    #[must_use]
     pub fn links(self, links: u32) -> Self {
         Attrs(proto::Attrs {
             nlink: links,
@@ -280,6 +286,7 @@ impl Default for Attrs {
 }
 
 impl FsInfo {
+    #[must_use]
     pub fn blocks(self, size: u32, total: u64, free: u64, available: u64) -> Self {
         FsInfo(proto::StatfsOut {
             bsize: size,
@@ -290,6 +297,7 @@ impl FsInfo {
         })
     }
 
+    #[must_use]
     pub fn inodes(self, total: u64, free: u64) -> Self {
         FsInfo(proto::StatfsOut {
             files: total,
@@ -298,6 +306,7 @@ impl FsInfo {
         })
     }
 
+    #[must_use]
     pub fn max_filename(self, max: u32) -> Self {
         FsInfo(proto::StatfsOut {
             namelen: max,
