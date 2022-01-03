@@ -3,7 +3,7 @@
 //! `blown-fuse`
 
 #![forbid(unsafe_code)]
-#![feature(try_trait_v2, doc_cfg)]
+#![feature(try_trait_v2)]
 
 #[cfg(not(target_os = "linux"))]
 compile_error!("Unsupported OS");
