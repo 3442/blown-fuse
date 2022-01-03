@@ -458,7 +458,7 @@ impl Known for Resolved {
 
     fn attrs(&self) -> (Attrs, Ttl) {
         let inode = self.inode;
-        let (access, modify, create) = {
+        let (access, modify, change) = {
             let time = |seconds: u32| (UNIX_EPOCH + Duration::from_secs(seconds.into())).into();
             let (atime, mtime, ctime) = (inode.i_atime, inode.i_mtime, inode.i_ctime);
 
@@ -474,7 +474,7 @@ impl Known for Resolved {
             .mode(Mode::from_bits_truncate(inode.i_mode.into()))
             .blocks(inode.i_blocks.into())
             .block_size(512)
-            .times(access, modify, create)
+            .times(access, modify, change)
             .links(inode.i_links_count.into());
 
         (attrs, Ttl::MAX)

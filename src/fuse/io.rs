@@ -246,14 +246,14 @@ impl Attrs {
     }
 
     #[must_use]
-    pub fn times(self, access: Timestamp, modify: Timestamp, create: Timestamp) -> Self {
+    pub fn times(self, access: Timestamp, modify: Timestamp, change: Timestamp) -> Self {
         Attrs(proto::Attrs {
             atime: access.seconds,
             mtime: modify.seconds,
-            ctime: create.seconds,
+            ctime: change.seconds,
             atimensec: access.nanoseconds,
             mtimensec: modify.nanoseconds,
-            ctimensec: create.nanoseconds,
+            ctimensec: change.nanoseconds,
             ..self.0
         })
     }
