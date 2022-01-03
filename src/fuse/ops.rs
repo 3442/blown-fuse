@@ -490,6 +490,25 @@ op! {
 }
 
 op! {
+    Flush {
+        type RequestBody = &'o proto::FlushIn;
+        type ReplyTail = ();
+    }
+
+    impl Request {
+        pub fn handle(&self) -> u64 {
+            self.body.fh
+        }
+    }
+
+    impl Reply {
+        pub fn ok(self) -> Done<'o> {
+            self.empty()
+        }
+    }
+}
+
+op! {
     Opendir {
         type RequestBody = &'o proto::OpendirIn;
         type ReplyTail = ();
