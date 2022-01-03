@@ -472,7 +472,8 @@ impl Known for Resolved {
                 Gid::from_raw(inode.i_gid.into()),
             )
             .mode(Mode::from_bits_truncate(inode.i_mode.into()))
-            .blocks(inode.i_blocks.into(), 512)
+            .blocks(inode.i_blocks.into())
+            .block_size(512)
             .times(access, modify, create)
             .links(inode.i_links_count.into());
 

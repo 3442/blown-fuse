@@ -230,9 +230,16 @@ impl Attrs {
     }
 
     #[must_use]
-    pub fn blocks(self, blocks: u64, block_size: u32) -> Self {
+    pub fn blocks(self, blocks: u64) -> Self {
         Attrs(proto::Attrs {
             blocks,
+            ..self.0
+        })
+    }
+
+    #[must_use]
+    pub fn block_size(self, block_size: u32) -> Self {
+        Attrs(proto::Attrs {
             blksize: block_size,
             ..self.0
         })
