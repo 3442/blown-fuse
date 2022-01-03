@@ -99,7 +99,7 @@ op! {
     Forget {
         type RequestBody = proto::OpcodeSelect<
             (&'o proto::BatchForgetIn, &'o [proto::ForgetOne]),
-            &'o proto::ForgetOne,
+            &'o proto::ForgetIn,
             { proto::Opcode::BatchForget as u32 },
         >;
 
@@ -110,12 +110,29 @@ op! {
         pub fn forget_list(&self) -> impl '_ + Iterator<Item = (Ino, u64)> {
             use proto::OpcodeSelect::*;
 
-            let slice = match self.body {
-                Match((_, slice)) => slice,
-                Alt(single) => std::slice::from_ref(single),
-            };
+            enum List<'a> {
+                Single(Option<(Ino, u64)>),
+                Batch(std::slice::Iter<'a, proto::ForgetOne>),
+            }
 
-            slice.iter().map(|forget| (Ino(forget.ino), forget.nlookup))
+            impl Iterator for List<'_> {
+                type Item = (Ino, u64);
+
+                fn next(&mut self) -> Option<Self::Item> {
+                    match self {
+                        List::Single(single) => single.take(),
+                        List::Batch(batch) => {
+                            let forget = batch.next()?;
+                            Some((Ino(forget.ino), forget.nlookup))
+                        }
+                    }
+                }
+            }
+
+            match self.body {
+                Match((_, slice)) => List::Batch(slice.iter()),
+                Alt(single) => List::Single(Some((self.ino(), single.nlookup))),
+            }
         }
     }
 
