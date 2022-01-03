@@ -8,9 +8,8 @@ use std::{
     ops::{ControlFlow, FromResidual, Try},
 };
 
-use crate::{proto, FuseResult, Ino, Timestamp, Ttl};
-
 use super::{Done, Operation, Reply, Request};
+use crate::{proto, FuseResult, Ino, Timestamp, Ttl};
 
 #[doc(no_inline)]
 pub use nix::{
@@ -293,9 +292,9 @@ impl Attrs {
     #[must_use]
     pub fn times(self, access: Timestamp, modify: Timestamp, change: Timestamp) -> Self {
         Attrs(proto::Attrs {
-            atime: access.seconds,
-            mtime: modify.seconds,
-            ctime: change.seconds,
+            atime: access.seconds as _,
+            mtime: modify.seconds as _,
+            ctime: change.seconds as _,
             atimensec: access.nanoseconds,
             mtimensec: modify.nanoseconds,
             ctimensec: change.nanoseconds,

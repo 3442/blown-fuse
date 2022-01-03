@@ -33,7 +33,7 @@ pub struct Ttl {
 
 #[derive(Copy, Clone, Default, Eq, PartialEq)]
 pub struct Timestamp {
-    seconds: u64,
+    seconds: i64,
     nanoseconds: u32,
 }
 
@@ -98,12 +98,33 @@ impl Ttl {
     }
 }
 
+impl Timestamp {
+    pub fn new(seconds: i64, nanoseconds: u32) -> Self {
+        Timestamp {
+            seconds,
+            nanoseconds,
+        }
+    }
+}
+
 impl From<SystemTime> for Timestamp {
     fn from(time: SystemTime) -> Self {
-        let duration = time.duration_since(UNIX_EPOCH).unwrap();
+        let (seconds, nanoseconds) = match time.duration_since(UNIX_EPOCH) {
+            Ok(duration) => {
+                let secs = duration.as_secs().try_into().unwrap();
+                (secs, duration.subsec_nanos())
+            }
+
+            Err(before_epoch) => {
+                let duration = before_epoch.duration();
+                let secs = -i64::try_from(duration.as_secs()).unwrap();
+                (secs, duration.subsec_nanos())
+            }
+        };
+
         Timestamp {
-            seconds: duration.as_secs(),
-            nanoseconds: duration.subsec_nanos(),
+            seconds,
+            nanoseconds,
         }
     }
 }
