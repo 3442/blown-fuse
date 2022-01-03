@@ -162,8 +162,8 @@ op! {
 
     impl Reply {
         /// This inode corresponds to a symbolic link pointing to the given target path.
-        pub fn target(self, target: &OsStr) -> Done<'o> {
-            self.chain(OutputChain::tail(&[target.as_bytes()]))
+        pub fn target<T: AsRef<OsStr>>(self, target: T) -> Done<'o> {
+            self.chain(OutputChain::tail(&[target.as_ref().as_bytes()]))
         }
 
         /// Same as [`Reply::target()`], except that the target path is taken from disjoint
