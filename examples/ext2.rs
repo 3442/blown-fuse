@@ -345,31 +345,29 @@ impl Ext2 {
 
     async fn getattr<'o>(&self, (request, reply): Op<'o, Getattr>) -> Done<'o> {
         let ino = request.ino();
-        let (reply, inode) = reply.fallible(self.inode(ino))?;
+        let (reply, inode) = reply.and_then(self.inode(ino))?;
 
         reply.known(&Resolved { ino, inode })
     }
 
     async fn lookup<'o>(&self, (request, reply): Op<'o, Lookup>) -> Done<'o> {
         let name = request.name();
-        let (reply, parent) = reply.fallible(self.inode(request.ino()))?;
+        let (mut reply, parent) = reply.and_then(self.inode(request.ino()))?;
 
         //TODO: Indexed directories
-        let lookup = async {
-            let stream = self.directory_stream(parent, 0);
-            tokio::pin!(stream);
+        let stream = self.directory_stream(parent, 0);
+        tokio::pin!(stream);
 
-            loop {
-                match stream.try_next().await? {
-                    Some(entry) if entry.name == name => break Ok(Some(entry.inode)),
-                    Some(_) => continue,
-                    None => break Ok(None),
-                }
+        let inode = loop {
+            let (next_reply, entry) = reply.and_then(stream.try_next().await)?;
+            reply = next_reply;
+
+            match entry {
+                Some(entry) if entry.name == name => break Some(entry.inode),
+                Some(_) => continue,
+                None => break None,
             }
         };
-
-        let (reply, result) = reply.interruptible(lookup).await?;
-        let (reply, inode) = reply.fallible(result)?;
 
         if let Some(inode) = inode {
             reply.found(inode, Ttl::MAX)
@@ -380,7 +378,7 @@ impl Ext2 {
 
     async fn readlink<'o>(&self, (request, reply): Op<'o, Readlink>) -> Done<'o> {
         let ino = request.ino();
-        let (reply, inode) = reply.fallible(self.inode(ino))?;
+        let (mut reply, inode) = reply.and_then(self.inode(ino))?;
 
         let resolved = Resolved { ino, inode };
         if resolved.inode_type() != Type::Symlink {
@@ -392,39 +390,35 @@ impl Ext2 {
             return reply.target(OsStr::from_bytes(&cast_slice(&inode.i_block)[..size]));
         }
 
-        let segments = async {
-            /* This is unlikely to ever spill, and is guaranteed not to
-             * do so for valid symlinks on any fs where block_size >= 4096.
-             */
-            let mut segments = SmallVec::<[&[u8]; 1]>::new();
-            let (mut size, mut offset) = (size, 0);
+        /* This is unlikely to ever spill, and is guaranteed not to
+         * do so for valid symlinks on any fs where block_size >= 4096.
+         */
+        let mut segments = SmallVec::<[&[u8]; 1]>::new();
+        let (mut size, mut offset) = (size, 0);
 
-            while size > 0 {
-                let segment = self.seek_contiguous(inode, offset)?;
-                let segment = &segment[..segment.len().min(size)];
+        while size > 0 {
+            let (next_reply, segment) = reply.and_then(self.seek_contiguous(inode, offset))?;
+            reply = next_reply;
 
-                segments.push(segment);
+            let segment = &segment[..segment.len().min(size)];
+            segments.push(segment);
 
-                size -= segment.len();
-                offset += segment.len() as u64;
-            }
+            size -= segment.len();
+            offset += segment.len() as u64;
+        }
 
-            Ok(segments)
-        };
-
-        let (reply, segments) = reply.fallible(segments.await)?;
         reply.gather_target(&segments)
     }
 
     async fn readdir<'o>(&self, (request, reply): Op<'o, Readdir>) -> Done<'o> {
-        let (reply, inode) = reply.fallible(self.inode(request.ino()))?;
+        let (reply, inode) = reply.and_then(self.inode(request.ino()))?;
         let mut reply = reply.buffered(Vec::new());
 
         let stream = self.directory_stream(inode, request.offset());
         tokio::pin!(stream);
 
         while let Some(entry) = stream.next().await {
-            let (next_reply, entry) = reply.fallible(entry)?;
+            let (next_reply, entry) = reply.and_then(entry)?;
             let (next_reply, ()) = next_reply.entry(entry)?;
             reply = next_reply;
         }

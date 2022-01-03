@@ -38,6 +38,12 @@ pub trait Known {
     fn unveil(self);
 }
 
+pub struct Failed<'o, E>(pub Done<'o>, pub E);
+
+pub trait Finish<'o, O: Operation<'o>> {
+    fn finish(&self, reply: Reply<'o, O>) -> Done<'o>;
+}
+
 #[derive(Clone)]
 pub struct Attrs(proto::Attrs);
 
@@ -50,6 +56,28 @@ pub struct Entry<'a, K> {
 
 #[derive(Copy, Clone)]
 pub struct FsInfo(proto::StatfsOut);
+
+impl<'o, E> From<Failed<'o, E>> for Done<'o> {
+    fn from(failed: Failed<'o, E>) -> Done<'o> {
+        failed.0
+    }
+}
+
+impl<'o, O: Operation<'o>> Finish<'o, O> for Errno {
+    fn finish(&self, reply: Reply<'o, O>) -> Done<'o> {
+        reply.fail(*self)
+    }
+}
+
+impl<'o, O: Operation<'o>> Finish<'o, O> for std::io::Error {
+    fn finish(&self, reply: Reply<'o, O>) -> Done<'o> {
+        reply.fail(
+            self.raw_os_error()
+                .map(Errno::from_i32)
+                .unwrap_or(Errno::EIO),
+        )
+    }
+}
 
 impl<'o, O: Operation<'o>> Request<'o, O> {
     pub fn ino(&self) -> Ino {
@@ -97,10 +125,16 @@ impl<'o, O: Operation<'o>> Reply<'o, O> {
         }
     }
 
-    pub fn fallible<T>(self, result: Result<T, Errno>) -> Result<(Self, T), Done<'o>> {
+    pub fn and_then<T, E>(self, result: Result<T, E>) -> Result<(Self, T), Failed<'o, E>>
+    where
+        E: Finish<'o, O>,
+    {
         match result {
             Ok(t) => Ok((self, t)),
-            Err(errno) => Err(self.fail(errno)),
+            Err(error) => {
+                let done = error.finish(self);
+                Err(Failed(done, error))
+            }
         }
     }
 
