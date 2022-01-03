@@ -12,7 +12,7 @@ use crate::{
 };
 
 use super::{
-    io::{AccessFlags, Entry, EntryType, FsInfo, Interruptible, Known, OpenFlags},
+    io::{AccessFlags, Entry, EntryType, FsInfo, Interruptible, Known, OpenFlags, Stat},
     private_trait::Sealed,
     Done, Operation, Reply, Request,
 };
@@ -71,10 +71,10 @@ op! {
         /// The requested entry was found. The FUSE client will become aware of the found inode if
         /// it wasn't before. This result may be cached by the client for up to the given TTL.
         pub fn found(self, entry: impl Known, ttl: Ttl) -> Done<'o> {
-            let (attrs, attrs_ttl) = entry.attrs();
-            let attrs = attrs.finish(&entry);
+            let (attrs, attrs_ttl) = entry.inode().attrs();
+            let attrs = attrs.finish(entry.inode());
 
-            let done = self.single(&make_entry((entry.ino(), ttl), (attrs, attrs_ttl)));
+            let done = self.single(&make_entry((entry.inode().ino(), ttl), (attrs, attrs_ttl)));
             entry.unveil();
 
             done
@@ -140,7 +140,7 @@ op! {
     }
 
     impl Reply {
-        pub fn known(self, inode: &impl Known) -> Done<'o> {
+        pub fn known(self, inode: &impl Stat) -> Done<'o> {
             let (attrs, ttl) = inode.attrs();
             let attrs = attrs.finish(inode);
 
@@ -598,7 +598,8 @@ impl<'o, B: BufMut + AsRef<[u8]>> Reply<'o, BufferedReaddir<B>> {
             return Interruptible::Interrupted(self.end());
         }
 
-        let entry_type = match entry.inode.inode_type() {
+        let inode = entry.inode.inode();
+        let entry_type = match inode.inode_type() {
             EntryType::Fifo => SFlag::S_IFIFO,
             EntryType::CharacterDevice => SFlag::S_IFCHR,
             EntryType::Directory => SFlag::S_IFDIR,
@@ -608,7 +609,7 @@ impl<'o, B: BufMut + AsRef<[u8]>> Reply<'o, BufferedReaddir<B>> {
             EntryType::Socket => SFlag::S_IFSOCK,
         };
 
-        let ino = entry.inode.ino();
+        let ino = inode.ino();
         let dirent = proto::Dirent {
             ino: ino.as_raw(),
             off: entry.offset,
@@ -622,8 +623,8 @@ impl<'o, B: BufMut + AsRef<[u8]>> Reply<'o, BufferedReaddir<B>> {
         }
 
         let ent = if self.tail.is_plus {
-            let (attrs, attrs_ttl) = entry.inode.attrs();
-            let attrs = attrs.finish(&entry.inode);
+            let (attrs, attrs_ttl) = inode.attrs();
+            let attrs = attrs.finish(inode);
             let entry_out = make_entry((ino, entry.ttl), (attrs, attrs_ttl));
 
             if name != ".".as_bytes() && name != "..".as_bytes() {

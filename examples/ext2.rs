@@ -31,7 +31,7 @@ use nix::{
 };
 
 use blown_fuse::{
-    io::{Attrs, Entry, FsInfo, Known},
+    io::{Attrs, Entry, FsInfo, Known, Stat},
     mount::{mount_sync, Options},
     ops::{Getattr, Init, Lookup, Readdir, Readlink, Statfs},
     session::{Dispatch, Start},
@@ -433,7 +433,7 @@ impl Ext2 {
     }
 }
 
-impl Known for Resolved {
+impl Stat for Resolved {
     fn ino(&self) -> Ino {
         self.ino
     }
@@ -478,6 +478,14 @@ impl Known for Resolved {
             .links(inode.i_links_count.into());
 
         (attrs, Ttl::MAX)
+    }
+}
+
+impl Known for Resolved {
+    type Inode = Resolved;
+
+    fn inode(&self) -> &Self::Inode {
+        self
     }
 
     fn unveil(self) {}

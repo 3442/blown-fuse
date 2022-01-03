@@ -25,10 +25,16 @@ pub enum Interruptible<'o, O: Operation<'o>, T> {
     Interrupted(Done<'o>),
 }
 
-pub trait Known {
+pub trait Stat {
     fn ino(&self) -> Ino;
     fn inode_type(&self) -> EntryType;
     fn attrs(&self) -> (Attrs, Ttl);
+}
+
+pub trait Known {
+    type Inode: Stat;
+
+    fn inode(&self) -> &Self::Inode;
     fn unveil(self);
 }
 
@@ -271,7 +277,7 @@ impl Attrs {
         })
     }
 
-    pub(crate) fn finish(self, inode: &impl Known) -> proto::Attrs {
+    pub(crate) fn finish(self, inode: &impl Stat) -> proto::Attrs {
         let Ino(ino) = inode.ino();
         let inode_type = match inode.inode_type() {
             EntryType::Fifo => SFlag::S_IFIFO,
