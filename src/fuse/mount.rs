@@ -6,6 +6,7 @@ use std::{
         io::{AsRawFd, RawFd},
         net::UnixStream,
     },
+    path::{Path, PathBuf},
     process::Command,
 };
 
@@ -97,7 +98,7 @@ impl<O: AsRef<OsStr>> Extend<O> for Options {
 
 pub fn mount_sync<M>(mountpoint: M, options: &Options) -> Result<Start, MountError>
 where
-    M: AsRef<OsStr>,
+    M: AsRef<Path> + Into<PathBuf>,
 {
     let (left_side, right_side) = UnixStream::pair()?;
 
@@ -112,24 +113,18 @@ where
     )
     .unwrap();
 
-    let mut command = Command::new("fusermount3");
+    let mut command = Command::new(FUSERMOUNT_CMD);
     if !options.0.is_empty() {
-        command.args(&[
-            OsStr::new("-o"),
-            &options.0,
-            OsStr::new("--"),
-            mountpoint.as_ref(),
-        ]);
-    } else {
-        command.arg(mountpoint);
-    };
+        command.args(&[OsStr::new("-o"), &options.0]);
+    }
 
+    command.args(&[OsStr::new("--"), mountpoint.as_ref().as_ref()]);
     let mut fusermount = command.env("_FUSE_COMMFD", right_fd.to_string()).spawn()?;
 
     // recvmsg() should fail if fusermount exits (last open fd is closed)
     drop(right_side);
 
-    let session_fd = (|| {
+    let session_fd = {
         let mut buffer = cmsg_space!(RawFd);
         let message = recvmsg(
             left_side.as_raw_fd(),
@@ -145,10 +140,10 @@ where
         };
 
         session_fd.ok_or(MountError::Fusermount)
-    })();
+    };
 
     match session_fd {
-        Ok(session_fd) => Ok(Start::new(DumbFd(session_fd))),
+        Ok(session_fd) => Ok(Start::new(DumbFd(session_fd), mountpoint.into())),
 
         Err(error) => {
             drop(left_side);
@@ -157,3 +152,17 @@ where
         }
     }
 }
+
+pub(crate) fn unmount_sync<M: AsRef<OsStr>>(mountpoint: M) -> Result<(), MountError> {
+    let status = Command::new(FUSERMOUNT_CMD)
+        .args(&[OsStr::new("-zuq"), OsStr::new("--"), mountpoint.as_ref()])
+        .status()?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(MountError::Fusermount)
+    }
+}
+
+const FUSERMOUNT_CMD: &str = "fusermount3";

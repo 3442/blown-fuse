@@ -389,5 +389,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    Ok(Runtime::new()?.block_on(main_loop(session, fs))?)
+    let result = Runtime::new()?.block_on(async move {
+        tokio::select! {
+            result = main_loop(session, fs) => result,
+            _ = tokio::signal::ctrl_c() => Ok(()),
+        }
+    });
+
+    Ok(result?)
 }

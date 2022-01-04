@@ -29,6 +29,12 @@ pub struct OutputChain<'a> {
 
 pub struct OutputChainIter<'a>(Option<&'a OutputChain<'a>>);
 
+impl DumbFd {
+    pub fn take(&mut self) -> DumbFd {
+        DumbFd(std::mem::replace(&mut self.0, -1))
+    }
+}
+
 impl IntoRawFd for DumbFd {
     fn into_raw_fd(self) -> RawFd {
         let fd = self.0;
@@ -39,7 +45,9 @@ impl IntoRawFd for DumbFd {
 
 impl Drop for DumbFd {
     fn drop(&mut self) {
-        let _ = close(self.0);
+        if !self.0.is_negative() {
+            let _ = close(self.0);
+        }
     }
 }
 

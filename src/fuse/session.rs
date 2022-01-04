@@ -4,6 +4,7 @@ use std::{
     marker::PhantomData,
     ops::ControlFlow,
     os::unix::io::{IntoRawFd, RawFd},
+    path::PathBuf,
     sync::{Arc, Mutex},
 };
 
@@ -22,6 +23,7 @@ use bytemuck::bytes_of;
 use smallvec::SmallVec;
 
 use crate::{
+    mount::{unmount_sync, MountError},
     proto::{self, InHeader, Structured},
     util::{page_size, DumbFd, OutputChain},
     Errno, FuseError, FuseResult,
@@ -34,6 +36,7 @@ use super::{
 
 pub struct Start {
     session_fd: DumbFd,
+    mountpoint: PathBuf,
 }
 
 pub struct Session {
@@ -42,6 +45,7 @@ pub struct Session {
     buffers: Mutex<Vec<Buffer>>,
     buffer_semaphore: Arc<Semaphore>,
     buffer_pages: usize,
+    mountpoint: Mutex<Option<PathBuf>>,
 }
 
 pub struct Endpoint<'a> {
@@ -91,6 +95,15 @@ impl Session {
             session: self,
             local_buffer: Buffer::new(self.buffer_pages),
         }
+    }
+
+    pub fn unmount_sync(&self) -> Result<(), MountError> {
+        let mountpoint = self.mountpoint.lock().unwrap().take();
+        if let Some(mountpoint) = &mountpoint {
+            unmount_sync(mountpoint)?;
+        }
+
+        Ok(())
     }
 
     pub(crate) fn ok(&self, unique: u64, output: OutputChain<'_>) -> FuseResult<()> {
@@ -212,6 +225,24 @@ impl Session {
     }
 }
 
+impl Drop for Start {
+    fn drop(&mut self) {
+        if !self.mountpoint.as_os_str().is_empty() {
+            let _ = unmount_sync(&self.mountpoint);
+        }
+    }
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        if let Some(mountpoint) = self.mountpoint.get_mut().unwrap().take() {
+            let _ = unmount_sync(&mountpoint);
+        }
+
+        drop(DumbFd(*self.session_fd.get_ref())); // Close
+    }
+}
+
 impl<'o> Dispatch<'o> {
     pub fn op(self) -> Op<'o> {
         use Dispatch::*;
@@ -253,7 +284,11 @@ impl Endpoint<'_> {
 
             let mut readable = tokio::select! {
                 readable = session_fd.readable() => readable?,
-                _ = session_fd.writable() => return Ok(ControlFlow::Break(())),
+
+                _ = session_fd.writable() => {
+                    self.session.mountpoint.lock().unwrap().take();
+                    return Ok(ControlFlow::Break(()));
+                }
             };
 
             let mut read = |fd: &AsyncFd<RawFd>| read(*fd.get_ref(), buffer);
@@ -264,6 +299,7 @@ impl Endpoint<'_> {
 
             match result {
                 // Interrupted
+                //TODO: libfuse docs say that this has some side effects
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
 
                 result => break result,
@@ -330,11 +366,12 @@ impl Endpoint<'_> {
 }
 
 impl Start {
-    pub async fn start<F>(self, mut init: F) -> FuseResult<Arc<Session>>
+    pub async fn start<F>(mut self, mut init: F) -> FuseResult<Arc<Session>>
     where
         F: FnOnce(Op<'_, ops::Init>) -> Done<'_>,
     {
-        let session_fd = self.session_fd.into_raw_fd();
+        let mountpoint = std::mem::take(&mut self.mountpoint);
+        let session_fd = self.session_fd.take().into_raw_fd();
 
         let flags = OFlag::O_NONBLOCK | OFlag::O_LARGEFILE;
         fcntl(session_fd, FcntlArg::F_SETFL(flags)).unwrap();
@@ -353,6 +390,7 @@ impl Start {
             buffers: Mutex::new(buffers),
             buffer_semaphore: Arc::new(Semaphore::new(buffer_count)),
             buffer_pages,
+            mountpoint: Mutex::new(Some(mountpoint)),
         };
 
         let mut init_buffer = session.buffers.get_mut().unwrap().pop().unwrap();
@@ -368,8 +406,17 @@ impl Start {
         }
     }
 
-    pub(crate) fn new(session_fd: DumbFd) -> Self {
-        Start { session_fd }
+    pub fn unmount_sync(mut self) -> Result<(), MountError> {
+        // This prevents Start::drop() from unmounting a second time
+        let mountpoint = std::mem::take(&mut self.mountpoint);
+        unmount_sync(&mountpoint)
+    }
+
+    pub(crate) fn new(session_fd: DumbFd, mountpoint: PathBuf) -> Self {
+        Start {
+            session_fd,
+            mountpoint,
+        }
     }
 }
 
