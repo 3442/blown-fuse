@@ -13,10 +13,10 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-pub use nix;
-pub use nix::errno::Errno;
-pub use util::{FuseError, FuseResult};
+pub use self::error::{FuseError, FuseResult};
+pub use nix::{self, errno::Errno};
 
+pub mod error;
 pub mod io;
 pub mod mount;
 pub mod ops;
