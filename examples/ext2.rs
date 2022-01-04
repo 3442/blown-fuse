@@ -164,7 +164,7 @@ impl Ext2 {
                 }
 
                 let ino = Ino(header.inode as u64);
-                let name = OsStr::from_bytes(&bytes[..header.name_len as usize]).into();
+                let name = OsStr::from_bytes(&bytes[..header.name_len as usize]);
 
                 let inode = Resolved {
                     ino,
