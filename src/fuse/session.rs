@@ -41,7 +41,6 @@ pub struct Session {
     interrupt_tx: broadcast::Sender<u64>,
     buffers: Mutex<Vec<Buffer>>,
     buffer_semaphore: Arc<Semaphore>,
-    proto_minor: u32,
     buffer_pages: usize,
 }
 
@@ -138,12 +137,7 @@ impl Session {
         use std::cmp::Ordering;
         let supported = match body.major.cmp(&proto::MAJOR_VERSION) {
             Ordering::Less => false,
-
-            Ordering::Equal => {
-                self.proto_minor = body.minor;
-                self.proto_minor >= proto::REQUIRED_MINOR_VERSION
-            }
-
+            Ordering::Equal => body.minor >= proto::REQUIRED_MINOR_VERSION,
             Ordering::Greater => {
                 let tail = [bytes_of(&proto::MAJOR_VERSION)];
                 self.ok(header.unique, OutputChain::tail(&tail))?;
@@ -358,7 +352,6 @@ impl Start {
             interrupt_tx,
             buffers: Mutex::new(buffers),
             buffer_semaphore: Arc::new(Semaphore::new(buffer_count)),
-            proto_minor: 0, // Set by Session::do_handshake()
             buffer_pages,
         };
 
