@@ -33,7 +33,7 @@ use nix::{
 use blown_fuse::{
     io::{Attrs, Entry, FsInfo, Known, Stat},
     mount::{mount_sync, Options},
-    ops::{Getattr, Init, Lookup, Readdir, Readlink, Statfs},
+    ops,
     session::{Dispatch, Start},
     Done, FuseResult, Ino, Op, Ttl,
 };
@@ -301,7 +301,7 @@ impl Ext2 {
 }
 
 impl Ext2 {
-    fn init<'o>(&self, (_, reply): Op<'o, Init>) -> Done<'o> {
+    fn init<'o>(&self, (_, reply): Op<'o, ops::Init>) -> Done<'o> {
         let label = &self.superblock.s_volume_name;
         let label = &label[..=label.iter().position(|byte| *byte == b'\0').unwrap_or(0)];
         let label = CStr::from_bytes_with_nul(label)
@@ -323,7 +323,7 @@ impl Ext2 {
         reply.ok()
     }
 
-    async fn statfs<'o>(&self, (_, reply): Op<'o, Statfs>) -> Done<'o> {
+    async fn statfs<'o>(&self, (_, reply): Op<'o, ops::Statfs>) -> Done<'o> {
         let total_blocks = self.superblock.s_blocks_count as u64;
         let free_blocks = self.superblock.s_free_blocks_count as u64;
         let available_blocks = free_blocks - self.superblock.s_r_blocks_count as u64;
@@ -343,14 +343,14 @@ impl Ext2 {
         reply.info(&info)
     }
 
-    async fn getattr<'o>(&self, (request, reply): Op<'o, Getattr>) -> Done<'o> {
+    async fn getattr<'o>(&self, (request, reply): Op<'o, ops::Getattr>) -> Done<'o> {
         let ino = request.ino();
         let (reply, inode) = reply.and_then(self.inode(ino))?;
 
         reply.known(&Resolved { ino, inode })
     }
 
-    async fn lookup<'o>(&self, (request, reply): Op<'o, Lookup>) -> Done<'o> {
+    async fn lookup<'o>(&self, (request, reply): Op<'o, ops::Lookup>) -> Done<'o> {
         let name = request.name();
         let (mut reply, parent) = reply.and_then(self.inode(request.ino()))?;
 
@@ -376,7 +376,7 @@ impl Ext2 {
         }
     }
 
-    async fn readlink<'o>(&self, (request, reply): Op<'o, Readlink>) -> Done<'o> {
+    async fn readlink<'o>(&self, (request, reply): Op<'o, ops::Readlink>) -> Done<'o> {
         let ino = request.ino();
         let (mut reply, inode) = reply.and_then(self.inode(ino))?;
 
@@ -410,7 +410,7 @@ impl Ext2 {
         reply.gather_target(&segments)
     }
 
-    async fn readdir<'o>(&self, (request, reply): Op<'o, Readdir>) -> Done<'o> {
+    async fn readdir<'o>(&self, (request, reply): Op<'o, ops::Readdir>) -> Done<'o> {
         let (reply, inode) = reply.and_then(self.inode(request.ino()))?;
         let mut reply = reply.buffered(Vec::new());
 
