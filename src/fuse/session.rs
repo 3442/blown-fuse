@@ -33,12 +33,10 @@ use super::{
 };
 
 pub struct Start {
-    fusermount_fd: DumbFd,
     session_fd: DumbFd,
 }
 
 pub struct Session {
-    _fusermount_fd: DumbFd,
     session_fd: AsyncFd<RawFd>,
     interrupt_tx: broadcast::Sender<u64>,
     buffers: Mutex<Vec<Buffer>>,
@@ -356,7 +354,6 @@ impl Start {
             .collect();
 
         let mut session = Session {
-            _fusermount_fd: self.fusermount_fd,
             session_fd: AsyncFd::with_interest(session_fd, tokio::io::Interest::READABLE)?,
             interrupt_tx,
             buffers: Mutex::new(buffers),
@@ -378,11 +375,8 @@ impl Start {
         }
     }
 
-    pub(crate) fn new(fusermount_fd: DumbFd, session_fd: DumbFd) -> Self {
-        Start {
-            fusermount_fd,
-            session_fd,
-        }
+    pub(crate) fn new(session_fd: DumbFd) -> Self {
+        Start { session_fd }
     }
 }
 

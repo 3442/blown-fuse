@@ -3,7 +3,7 @@ use std::{
     io,
     os::unix::{
         ffi::OsStrExt,
-        io::{AsRawFd, IntoRawFd, RawFd},
+        io::{AsRawFd, RawFd},
         net::UnixStream,
     },
     process::Command,
@@ -114,7 +114,12 @@ where
 
     let mut command = Command::new("fusermount3");
     if !options.0.is_empty() {
-        command.args(&[OsStr::new("-o"), &options.0, mountpoint.as_ref()]);
+        command.args(&[
+            OsStr::new("-o"),
+            &options.0,
+            OsStr::new("--"),
+            mountpoint.as_ref(),
+        ]);
     } else {
         command.arg(mountpoint);
     };
@@ -143,12 +148,7 @@ where
     })();
 
     match session_fd {
-        Ok(session_fd) => {
-            let fusermount_fd = DumbFd(left_side.into_raw_fd());
-            let session_fd = DumbFd(session_fd);
-
-            Ok(Start::new(fusermount_fd, session_fd))
-        }
+        Ok(session_fd) => Ok(Start::new(DumbFd(session_fd))),
 
         Err(error) => {
             drop(left_side);
