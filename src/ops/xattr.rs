@@ -1,7 +1,9 @@
-use std::ffi::{CStr, OsStr};
-use crate::{proto, util::OutputChain, Errno};
-use crate::fuse::{private_trait::Sealed, Done, Operation, Reply, Request};
+use crate::{
+    private_trait::Sealed, proto, util::OutputChain, Done, Errno, Operation, Reply, Request,
+};
+
 use super::c_to_os;
+use std::ffi::{CStr, OsStr};
 
 pub enum Setxattr {}
 pub enum Getxattr {}

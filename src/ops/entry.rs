@@ -1,5 +1,4 @@
-use crate::{proto, Ino};
-use crate::fuse::{io::Stat, private_trait::Sealed, Done, Operation, Reply, Request};
+use crate::{io::Stat, private_trait::Sealed, proto, Done, Ino, Operation, Reply, Request};
 
 pub enum Forget {}
 pub enum Getattr {}

@@ -5,7 +5,7 @@ use std::{
     os::unix::ffi::OsStrExt,
 };
 
-use crate::fuse::{
+use crate::{
     io::{Entry, EntryType, Interruptible, Known, Stat},
     private_trait::Sealed,
     Done, Operation, Reply, Request,

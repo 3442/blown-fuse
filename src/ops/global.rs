@@ -1,5 +1,4 @@
-use crate::{proto, util::page_size};
-use crate::fuse::{io::FsInfo, private_trait::Sealed, Done, Operation, Reply};
+use crate::{io::FsInfo, private_trait::Sealed, proto, util::page_size, Done, Operation, Reply};
 
 pub enum Init {}
 pub enum Statfs {}

@@ -8,16 +8,51 @@
 #[cfg(not(target_os = "linux"))]
 compile_error!("Unsupported OS");
 
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    marker::PhantomData,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 pub use nix;
-pub use crate::fuse::*;
 pub use nix::errno::Errno;
 pub use util::{FuseError, FuseResult};
 
+pub mod io;
+pub mod mount;
+pub mod ops;
+pub mod session;
+
 mod proto;
 mod util;
-mod fuse;
+
+pub trait Operation<'o>: private_trait::Sealed + Sized {
+    type RequestBody: crate::proto::Structured<'o>;
+    type ReplyTail;
+}
+
+pub type Op<'o, O = ops::Any> = (Request<'o, O>, Reply<'o, O>);
+
+pub struct Request<'o, O: Operation<'o>> {
+    header: proto::InHeader,
+    body: O::RequestBody,
+}
+
+#[must_use]
+pub struct Reply<'o, O: Operation<'o>> {
+    session: &'o session::Session,
+    unique: u64,
+    tail: O::ReplyTail,
+}
+
+/// Inode number.
+///
+/// This is a public newtype. Users are expected to inspect the underlying `u64` and construct
+/// arbitrary `Ino` objects.
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub struct Ino(pub u64);
+
+#[must_use]
+pub struct Done<'o>(PhantomData<&'o mut &'o ()>);
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct Ttl {
@@ -31,12 +66,15 @@ pub struct Timestamp {
     nanoseconds: u32,
 }
 
-/// Inode number.
-///
-/// This is a public newtype. Users are expected to inspect the underlying `u64` and construct
-/// arbitrary `Ino` objects.
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct Ino(pub u64);
+impl Done<'_> {
+    fn new() -> Self {
+        Done(PhantomData)
+    }
+
+    fn consume(self) {
+        drop(self);
+    }
+}
 
 impl Ino {
     /// The invalid inode number, mostly useful for internal aspects of the FUSE protocol.
@@ -121,4 +159,8 @@ impl From<SystemTime> for Timestamp {
             nanoseconds,
         }
     }
+}
+
+mod private_trait {
+    pub trait Sealed {}
 }

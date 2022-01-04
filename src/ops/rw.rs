@@ -1,7 +1,6 @@
-use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
-use crate::{proto, util::OutputChain};
-use crate::fuse::{private_trait::Sealed, Done, Operation, Reply, Request};
 use super::FromRequest;
+use crate::{private_trait::Sealed, proto, util::OutputChain, Done, Operation, Reply, Request};
+use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
 
 pub enum Readlink {}
 pub enum Read {}

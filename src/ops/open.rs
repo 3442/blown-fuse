@@ -1,10 +1,9 @@
-use crate::fuse::{
+use crate::{
     io::{AccessFlags, OpenFlags},
     private_trait::Sealed,
-    Done, Operation, Reply, Request,
+    proto, Done, Errno, Operation, Reply, Request,
 };
 
-use crate::{proto, Errno};
 use super::FromRequest;
 
 pub enum Open {}

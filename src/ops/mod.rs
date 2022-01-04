@@ -3,8 +3,7 @@ use std::{
     os::unix::ffi::OsStrExt,
 };
 
-use crate::util::OutputChain;
-use super::{private_trait::Sealed, Done, Operation, Reply, Request};
+use crate::{private_trait::Sealed, util::OutputChain, Done, Operation, Reply, Request};
 use bytemuck::{bytes_of, Pod};
 
 mod dir;
