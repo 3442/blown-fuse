@@ -18,8 +18,8 @@ bytes = "1.1.0"
 log = "0.4.14"
 nix = "0.23.1"
 num_enum = "0.5.5"
-quick-error = "2.0.1"
 smallvec = "1.7.0"
+thiserror = "1.0.30"
 tokio = { version = "1.15.0", features = ["rt", "net", "macros", "sync"] }
 
 [dev-dependencies]

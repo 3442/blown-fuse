@@ -16,18 +16,7 @@ use nix::{
     sys::socket::{recvmsg, ControlMessageOwned, MsgFlags},
 };
 
-use quick_error::quick_error;
-
-use super::session::Start;
-use crate::util::DumbFd;
-
-quick_error! {
-    #[derive(Debug)]
-    pub enum MountError {
-        Io(err: std::io::Error) { from() }
-        Fusermount { display("fusermount failed") }
-    }
-}
+use crate::{error::MountError, session::Start, util::DumbFd};
 
 #[derive(Default)]
 pub struct Options(OsString);

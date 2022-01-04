@@ -23,7 +23,8 @@ use bytemuck::bytes_of;
 use smallvec::SmallVec;
 
 use crate::{
-    mount::{unmount_sync, MountError},
+    error::MountError,
+    mount::unmount_sync,
     proto::{self, InHeader, Structured},
     util::{page_size, DumbFd, OutputChain},
     Errno, FuseError, FuseResult,
@@ -537,7 +538,7 @@ where
     let body = match Structured::toplevel_from(&bytes[HEADER_END..header.len as usize], &header) {
         Ok(body) => body,
         Err(error) => {
-            log::error!("Parsing request {}: {}", header, error);
+            log::error!("Parsing request {}: {:?}", header, error);
             let reply = Reply::<ops::Any> {
                 session,
                 unique: header.unique,
