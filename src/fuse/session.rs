@@ -180,7 +180,7 @@ impl Session {
         let reply = Reply {
             session: self,
             unique: header.unique,
-            tail: ops::state::Init {
+            tail: ops::InitState {
                 kernel_flags: proto::InitFlags::from_bits_truncate(body.flags),
                 buffer_pages: self.buffer_pages,
             },
