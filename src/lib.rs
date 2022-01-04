@@ -11,19 +11,13 @@ compile_error!("Unsupported OS");
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub use nix;
-
 pub use crate::fuse::*;
-pub mod client;
+pub use nix::errno::Errno;
+pub use util::{FuseError, FuseResult};
 
 mod proto;
 mod util;
-
 mod fuse;
-
-#[doc(no_inline)]
-pub use nix::errno::Errno;
-
-pub use util::{FuseError, FuseResult};
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct Ttl {
