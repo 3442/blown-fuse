@@ -102,7 +102,7 @@ impl Passthrough {
         let path = parent.path.join(request.name());
         let (reply, metadata) = reply.and_then(fs::symlink_metadata(&path).await)?;
 
-        reply.found(New(&mut self.known, Inode::new(path, metadata)), Ttl::MAX)
+        reply.known(New(&mut self.known, Inode::new(path, metadata)), Ttl::MAX)
     }
 
     fn forget<'o>(&mut self, (request, reply): Op<'o, ops::Forget>) -> Done<'o> {
@@ -124,14 +124,14 @@ impl Passthrough {
 
     fn getattr<'o>(&mut self, (request, reply): Op<'o, ops::Getattr>) -> Done<'o> {
         let (reply, inode) = reply.and_then(self.known(request.ino()))?;
-        reply.known(inode)
+        reply.stat(inode)
     }
 
     async fn readlink<'o>(&mut self, (request, reply): Op<'o, ops::Readlink>) -> Done<'o> {
         let (reply, inode) = reply.and_then(self.known(request.ino()))?;
         let (reply, target) = reply.and_then(fs::read_link(&inode.path).await)?;
 
-        reply.target(&target)
+        reply.blob(&target)
     }
 
     async fn open<'o>(&mut self, (request, reply): Op<'o, ops::Open>) -> Done<'o> {

@@ -1,7 +1,12 @@
+use super::traits::ReplyOk;
 use crate::{io::Stat, private_trait::Sealed, proto, Done, Ino, Operation, Reply, Request};
 
 pub enum Forget {}
 pub enum Getattr {}
+
+pub trait ReplyStat<'o>: Operation<'o> {
+    fn stat(reply: Reply<'o, Self>, inode: &impl Stat) -> Done<'o>;
+}
 
 impl Sealed for Forget {}
 impl Sealed for Getattr {}
@@ -51,8 +56,8 @@ impl<'o> Request<'o, Forget> {
     }
 }
 
-impl<'o> Reply<'o, Forget> {
-    pub fn ok(self) -> Done<'o> {
+impl<'o> ReplyOk<'o> for Forget {
+    fn ok(_reply: Reply<'o, Self>) -> Done<'o> {
         // No reply for forget requests
         Done::new()
     }
@@ -64,12 +69,12 @@ impl<'o> Request<'o, Getattr> {
     }
 }
 
-impl<'o> Reply<'o, Getattr> {
-    pub fn known(self, inode: &impl Stat) -> Done<'o> {
+impl<'o> ReplyStat<'o> for Getattr {
+    fn stat(reply: Reply<'o, Self>, inode: &impl Stat) -> Done<'o> {
         let (attrs, ttl) = inode.attrs();
         let attrs = attrs.finish(inode);
 
-        self.single(&proto::AttrOut {
+        reply.single(&proto::AttrOut {
             attr_valid: ttl.seconds,
             attr_valid_nsec: ttl.nanoseconds,
             dummy: Default::default(),

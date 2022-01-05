@@ -11,7 +11,12 @@ use crate::{
     Done, Operation, Reply, Request,
 };
 
-use super::{c_to_os, FromRequest};
+use super::{
+    c_to_os, make_entry,
+    traits::{ReplyBuffered, ReplyKnown, ReplyNotFound},
+    FromRequest,
+};
+
 use crate::{proto, Errno, Ino, Ttl};
 use bytemuck::{bytes_of, Zeroable};
 use bytes::BufMut;
@@ -20,6 +25,15 @@ use nix::sys::stat::SFlag;
 pub enum Lookup {}
 pub enum Readdir {}
 pub struct BufferedReaddir<B>(Infallible, PhantomData<B>);
+
+pub trait ReplyFound<'o>: ReplyKnown<'o> {
+    fn not_found_for(reply: Reply<'o, Self>, ttl: Ttl) -> Done<'o>;
+}
+
+pub trait ReplyEntries<'o>: Operation<'o> {
+    fn entry(reply: Reply<'o, Self>, entry: Entry<impl Known>) -> Interruptible<'o, Self, ()>;
+    fn end(reply: Reply<'o, Self>) -> Done<'o>;
+}
 
 pub struct ReaddirState<B> {
     max_read: usize,
@@ -58,33 +72,20 @@ impl<'o> Request<'o, Lookup> {
     }
 }
 
-impl<'o> Reply<'o, Lookup> {
-    /// The requested entry was found. The FUSE client will become aware of the found inode if
-    /// it wasn't before. This result may be cached by the client for up to the given TTL.
-    pub fn found(self, entry: impl Known, ttl: Ttl) -> Done<'o> {
-        let (attrs, attrs_ttl) = entry.inode().attrs();
-        let attrs = attrs.finish(entry.inode());
-
-        let done = self.single(&make_entry((entry.inode().ino(), ttl), (attrs, attrs_ttl)));
-        entry.unveil();
-
-        done
+impl<'o> ReplyNotFound<'o> for Lookup {
+    fn not_found(reply: Reply<'o, Self>) -> Done<'o> {
+        reply.fail(Errno::ENOENT)
     }
+}
 
-    /// The requested entry was not found in this directory. The FUSE clint may include this
-    /// response in negative cache for up to the given TTL.
-    pub fn not_found(self, ttl: Ttl) -> Done<'o> {
-        self.single(&make_entry(
+impl<'o> ReplyKnown<'o> for Lookup {}
+
+impl<'o> ReplyFound<'o> for Lookup {
+    fn not_found_for(reply: Reply<'o, Self>, ttl: Ttl) -> Done<'o> {
+        reply.single(&make_entry(
             (Ino::NULL, ttl),
             (Zeroable::zeroed(), Ttl::NULL),
         ))
-    }
-
-    /// The requested entry was not found in this directory, but unlike [`Reply::not_found()`]
-    /// this does not report back a TTL to the FUSE client. The client should not cache the
-    /// response.
-    pub fn not_found_uncached(self) -> Done<'o> {
-        self.fail(Errno::ENOENT)
     }
 }
 
@@ -112,22 +113,24 @@ impl<'o> Request<'o, Readdir> {
     }
 }
 
-impl<'o> Reply<'o, Readdir> {
-    pub fn buffered<B>(self, buffer: B) -> Reply<'o, BufferedReaddir<B>>
-    where
-        B: BufMut + AsRef<[u8]>,
-    {
+impl<'o, B> ReplyBuffered<'o, B> for Readdir
+where
+    B: BufMut + AsRef<[u8]>,
+{
+    type Buffered = BufferedReaddir<B>;
+
+    fn buffered(reply: Reply<'o, Self>, buffer: B) -> Reply<'o, Self::Buffered> {
         assert!(buffer.as_ref().is_empty());
 
         let ReaddirState {
             max_read,
             is_plus,
             buffer: (),
-        } = self.tail;
+        } = reply.tail;
 
         Reply {
-            session: self.session,
-            unique: self.unique,
+            session: reply.session,
+            unique: reply.unique,
             tail: ReaddirState {
                 max_read,
                 is_plus,
@@ -137,9 +140,9 @@ impl<'o> Reply<'o, Readdir> {
     }
 }
 
-impl<'o, B: BufMut + AsRef<[u8]>> Reply<'o, BufferedReaddir<B>> {
-    pub fn entry(mut self, entry: Entry<impl Known>) -> Interruptible<'o, BufferedReaddir<B>, ()> {
-        let entry_header_len = if self.tail.is_plus {
+impl<'o, B: BufMut + AsRef<[u8]>> ReplyEntries<'o> for BufferedReaddir<B> {
+    fn entry(mut reply: Reply<'o, Self>, entry: Entry<impl Known>) -> Interruptible<'o, Self, ()> {
+        let entry_header_len = if reply.tail.is_plus {
             std::mem::size_of::<proto::DirentPlus>()
         } else {
             std::mem::size_of::<proto::Dirent>()
@@ -148,19 +151,19 @@ impl<'o, B: BufMut + AsRef<[u8]>> Reply<'o, BufferedReaddir<B>> {
         let name = entry.name.as_bytes();
         let padding_len = dirent_pad_bytes(entry_header_len + name.len());
 
-        let buffer = &mut self.tail.buffer;
+        let buffer = &mut reply.tail.buffer;
         let remaining = buffer
             .remaining_mut()
-            .min(self.tail.max_read - buffer.as_ref().len());
+            .min(reply.tail.max_read - buffer.as_ref().len());
 
         let record_len = entry_header_len + name.len() + padding_len;
         if remaining < record_len {
             if buffer.as_ref().is_empty() {
-                log::error!("Buffer for readdir req #{} is too small", self.unique);
-                return Interruptible::Interrupted(self.fail(Errno::ENOBUFS));
+                log::error!("Buffer for readdir req #{} is too small", reply.unique);
+                return Interruptible::Interrupted(reply.fail(Errno::ENOBUFS));
             }
 
-            return Interruptible::Interrupted(self.end());
+            return Interruptible::Interrupted(reply.end());
         }
 
         let inode = entry.inode.inode();
@@ -187,7 +190,7 @@ impl<'o, B: BufMut + AsRef<[u8]>> Reply<'o, BufferedReaddir<B>> {
             DirentPlus(proto::DirentPlus),
         }
 
-        let ent = if self.tail.is_plus {
+        let ent = if reply.tail.is_plus {
             let (attrs, attrs_ttl) = inode.attrs();
             let attrs = attrs.finish(inode);
             let entry_out = make_entry((ino, entry.ttl), (attrs, attrs_ttl));
@@ -211,14 +214,14 @@ impl<'o, B: BufMut + AsRef<[u8]>> Reply<'o, BufferedReaddir<B>> {
         buffer.put_slice(&[0; 7][..padding_len]);
 
         if remaining - record_len >= entry_header.len() + (1 << proto::DIRENT_ALIGNMENT_BITS) {
-            Interruptible::Completed(self, ())
+            Interruptible::Completed(reply, ())
         } else {
-            Interruptible::Interrupted(self.end())
+            Interruptible::Interrupted(reply.end())
         }
     }
 
-    pub fn end(self) -> Done<'o> {
-        self.inner(|this| this.tail.buffer.as_ref())
+    fn end(reply: Reply<'o, Self>) -> Done<'o> {
+        reply.inner(|reply| reply.tail.buffer.as_ref())
     }
 }
 
@@ -229,21 +232,6 @@ impl<'o> FromRequest<'o, Readdir> for ReaddirState<()> {
             is_plus: matches!(request.body, proto::OpcodeSelect::Match(_)),
             buffer: (),
         }
-    }
-}
-
-fn make_entry(
-    (Ino(ino), entry_ttl): (Ino, Ttl),
-    (attrs, attr_ttl): (proto::Attrs, Ttl),
-) -> proto::EntryOut {
-    proto::EntryOut {
-        nodeid: ino,
-        generation: 0, //TODO
-        entry_valid: entry_ttl.seconds,
-        attr_valid: attr_ttl.seconds,
-        entry_valid_nsec: entry_ttl.nanoseconds,
-        attr_valid_nsec: attr_ttl.nanoseconds,
-        attr: attrs,
     }
 }
 

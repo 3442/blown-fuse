@@ -1,6 +1,9 @@
-use super::FromRequest;
-use crate::{private_trait::Sealed, proto, util::OutputChain, Done, Operation, Reply, Request};
-use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
+use super::{
+    traits::{ReplyGather, ReplyOk},
+    FromRequest,
+};
+
+use crate::{private_trait::Sealed, proto, Done, Operation, Reply, Request};
 
 pub enum Readlink {}
 pub enum Read {}
@@ -9,6 +12,10 @@ pub enum Flush {}
 
 pub struct WriteState {
     size: u32,
+}
+
+pub trait ReplyAll<'o>: Operation<'o> {
+    fn all(reply: Reply<'o, Self>) -> Done<'o>;
 }
 
 impl Sealed for Readlink {}
@@ -36,18 +43,7 @@ impl<'o> Operation<'o> for Flush {
     type ReplyTail = ();
 }
 
-impl<'o> Reply<'o, Readlink> {
-    /// This inode corresponds to a symbolic link pointing to the given target path.
-    pub fn target<T: AsRef<OsStr>>(self, target: T) -> Done<'o> {
-        self.chain(OutputChain::tail(&[target.as_ref().as_bytes()]))
-    }
-
-    /// Same as [`Reply::target()`], except that the target path is taken from disjoint
-    /// slices. This involves no additional allocation.
-    pub fn gather_target(self, target: &[&[u8]]) -> Done<'o> {
-        self.chain(OutputChain::tail(target))
-    }
-}
+impl<'o> ReplyGather<'o> for Readlink {}
 
 impl<'o> Request<'o, Read> {
     pub fn handle(&self) -> u64 {
@@ -63,11 +59,7 @@ impl<'o> Request<'o, Read> {
     }
 }
 
-impl<'o> Reply<'o, Read> {
-    pub fn slice(self, data: &[u8]) -> Done<'o> {
-        self.chain(OutputChain::tail(&[data]))
-    }
-}
+impl<'o> ReplyGather<'o> for Read {}
 
 impl<'o> Request<'o, Write> {
     pub fn handle(&self) -> u64 {
@@ -83,10 +75,10 @@ impl<'o> Request<'o, Write> {
     }
 }
 
-impl<'o> Reply<'o, Write> {
-    pub fn all(self) -> Done<'o> {
-        let size = self.tail.size;
-        self.single(&proto::WriteOut {
+impl<'o> ReplyAll<'o> for Write {
+    fn all(reply: Reply<'o, Self>) -> Done<'o> {
+        let size = reply.tail.size;
+        reply.single(&proto::WriteOut {
             size,
             padding: Default::default(),
         })
@@ -99,11 +91,7 @@ impl<'o> Request<'o, Flush> {
     }
 }
 
-impl<'o> Reply<'o, Flush> {
-    pub fn ok(self) -> Done<'o> {
-        self.empty()
-    }
-}
+impl<'o> ReplyOk<'o> for Flush {}
 
 impl<'o> FromRequest<'o, Write> for WriteState {
     fn from_request(request: &Request<'o, Write>) -> Self {

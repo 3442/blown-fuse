@@ -2,7 +2,11 @@ use crate::{
     private_trait::Sealed, proto, util::OutputChain, Done, Errno, Operation, Reply, Request,
 };
 
-use super::c_to_os;
+use super::{
+    c_to_os,
+    traits::{ReplyGather, ReplyNotFound, ReplyOk},
+};
+
 use std::ffi::{CStr, OsStr};
 
 pub enum Setxattr {}
@@ -12,6 +16,14 @@ pub enum Removexattr {}
 
 pub struct XattrReadState {
     size: u32,
+}
+
+pub trait ReplyXattrRead<'o>: Operation<'o> {
+    fn requires_size(reply: Reply<'o, Self>, size: u32) -> Done<'o>;
+
+    fn buffer_too_small(reply: Reply<'o, Self>) -> Done<'o> {
+        reply.fail(Errno::ERANGE)
+    }
 }
 
 impl Sealed for Setxattr {}
@@ -53,13 +65,11 @@ impl<'o> Request<'o, Setxattr> {
     }
 }
 
-impl<'o> Reply<'o, Setxattr> {
-    pub fn ok(self) -> Done<'o> {
-        self.empty()
-    }
+impl<'o> ReplyOk<'o> for Setxattr {}
 
-    pub fn not_found(self) -> Done<'o> {
-        self.fail(Errno::ENODATA)
+impl<'o> ReplyNotFound<'o> for Setxattr {
+    fn not_found(reply: Reply<'o, Self>) -> Done<'o> {
+        reply.fail(Errno::ENODATA)
     }
 }
 
@@ -73,33 +83,39 @@ impl<'o> Request<'o, Getxattr> {
     }
 }
 
-impl<'o> Reply<'o, Getxattr> {
-    pub fn slice(self, value: &[u8]) -> Done<'o> {
-        let size = value.len().try_into().expect("Extremely large xattr");
-        if self.tail.size == 0 {
-            return self.value_size(size);
-        } else if self.tail.size < size {
-            return self.buffer_too_small();
+impl<'o> ReplyNotFound<'o> for Getxattr {
+    fn not_found(reply: Reply<'o, Self>) -> Done<'o> {
+        reply.fail(Errno::ENODATA)
+    }
+}
+
+impl<'o> ReplyGather<'o> for Getxattr {
+    fn gather(reply: Reply<'o, Self>, fragments: &[&[u8]]) -> Done<'o> {
+        let size = fragments
+            .iter()
+            .map(|fragment| fragment.len())
+            .sum::<usize>()
+            .try_into()
+            .expect("Extremely large xattr");
+
+        if reply.tail.size == 0 {
+            return reply.requires_size(size);
+        } else if reply.tail.size < size {
+            return reply.buffer_too_small();
         }
 
-        self.chain(OutputChain::tail(&[value]))
+        reply.chain(OutputChain::tail(fragments))
     }
+}
 
-    pub fn value_size(self, size: u32) -> Done<'o> {
-        assert_eq!(self.tail.size, 0);
+impl<'o> ReplyXattrRead<'o> for Getxattr {
+    fn requires_size(reply: Reply<'o, Self>, size: u32) -> Done<'o> {
+        assert_eq!(reply.tail.size, 0);
 
-        self.single(&proto::GetxattrOut {
+        reply.single(&proto::GetxattrOut {
             size,
             padding: Default::default(),
         })
-    }
-
-    pub fn buffer_too_small(self) -> Done<'o> {
-        self.fail(Errno::ERANGE)
-    }
-
-    pub fn not_found(self) -> Done<'o> {
-        self.fail(Errno::ENODATA)
     }
 }
 
@@ -109,22 +125,18 @@ impl<'o> Request<'o, Listxattr> {
     }
 }
 
-impl<'o> Reply<'o, Listxattr> {
+impl<'o> ReplyXattrRead<'o> for Listxattr {
     //TODO: buffered(), gather()
 
-    pub fn value_size(self, size: u32) -> Done<'o> {
-        assert_eq!(self.tail.size, 0);
+    fn requires_size(reply: Reply<'o, Self>, size: u32) -> Done<'o> {
+        assert_eq!(reply.tail.size, 0);
 
-        self.single(&proto::ListxattrOut {
+        reply.single(&proto::ListxattrOut {
             getxattr_out: proto::GetxattrOut {
                 size,
                 padding: Default::default(),
             },
         })
-    }
-
-    pub fn buffer_too_small(self) -> Done<'o> {
-        self.fail(Errno::ERANGE)
     }
 }
 
@@ -134,8 +146,10 @@ impl<'o> Request<'o, Removexattr> {
     }
 }
 
-impl<'o> Reply<'o, Removexattr> {
-    pub fn ok(self) -> Done<'o> {
-        self.empty()
+impl<'o> ReplyOk<'o> for Removexattr {}
+
+impl<'o> ReplyNotFound<'o> for Removexattr {
+    fn not_found(reply: Reply<'o, Self>) -> Done<'o> {
+        reply.fail(Errno::ENODATA)
     }
 }

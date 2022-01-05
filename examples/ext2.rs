@@ -347,7 +347,7 @@ impl Ext2 {
         let ino = request.ino();
         let (reply, inode) = reply.and_then(self.inode(ino))?;
 
-        reply.known(&Resolved { ino, inode })
+        reply.stat(&Resolved { ino, inode })
     }
 
     async fn lookup<'o>(&self, (request, reply): Op<'o, ops::Lookup>) -> Done<'o> {
@@ -370,9 +370,9 @@ impl Ext2 {
         };
 
         if let Some(inode) = inode {
-            reply.found(inode, Ttl::MAX)
+            reply.known(inode, Ttl::MAX)
         } else {
-            reply.not_found(Ttl::MAX)
+            reply.not_found_for(Ttl::MAX)
         }
     }
 
@@ -387,7 +387,7 @@ impl Ext2 {
 
         let size = inode.i_size as usize;
         if size < size_of::<[u32; 15]>() {
-            return reply.target(OsStr::from_bytes(&cast_slice(&inode.i_block)[..size]));
+            return reply.slice(&cast_slice(&inode.i_block)[..size]);
         }
 
         /* This is unlikely to ever spill, and is guaranteed not to
@@ -407,7 +407,7 @@ impl Ext2 {
             offset += segment.len() as u64;
         }
 
-        reply.gather_target(&segments)
+        reply.gather(&segments)
     }
 
     async fn readdir<'o>(&self, (request, reply): Op<'o, ops::Readdir>) -> Done<'o> {

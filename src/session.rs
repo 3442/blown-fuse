@@ -206,7 +206,6 @@ impl Session {
             unique,
         };
 
-        //TODO: Full const generics any time now? Fs::EXPECTED_REQUEST_SEGMENTS
         let header = [bytes_of(&header)];
         let output = output.preceded(&header);
         let buffers: SmallVec<[_; 8]> = output
