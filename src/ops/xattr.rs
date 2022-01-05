@@ -4,7 +4,7 @@ use crate::{
 
 use super::{
     c_to_os,
-    traits::{ReplyGather, ReplyNotFound, ReplyOk},
+    traits::{ReplyGather, ReplyNotFound, ReplyOk, RequestData, RequestName, RequestSize},
 };
 
 use std::ffi::{CStr, OsStr};
@@ -52,15 +52,17 @@ impl<'o> Operation<'o> for Removexattr {
     type ReplyTail = ();
 }
 
-//TODO: flags
-impl<'o> Request<'o, Setxattr> {
-    pub fn name(&self) -> &OsStr {
-        let (_header, name, _value) = self.body;
+impl<'o> RequestName<'o> for Setxattr {
+    fn name<'a>(request: &'a Request<'o, Self>) -> &'a OsStr {
+        let (_header, name, _value) = request.body;
         c_to_os(name)
     }
+}
 
-    pub fn value(&self) -> &[u8] {
-        let (_header, _name, value) = self.body;
+//TODO: flags
+impl<'o> RequestData<'o> for Setxattr {
+    fn data<'a>(request: &'a Request<'o, Self>) -> &'a [u8] {
+        let (_header, _name, value) = request.body;
         value
     }
 }
@@ -73,13 +75,15 @@ impl<'o> ReplyNotFound<'o> for Setxattr {
     }
 }
 
-impl<'o> Request<'o, Getxattr> {
-    pub fn size(&self) -> u32 {
-        self.body.0.size
+impl<'o> RequestSize<'o> for Getxattr {
+    fn size(request: &Request<'o, Self>) -> u32 {
+        request.body.0.size
     }
+}
 
-    pub fn name(&self) -> &OsStr {
-        c_to_os(self.body.1)
+impl<'o> RequestName<'o> for Getxattr {
+    fn name<'a>(request: &'a Request<'o, Self>) -> &'a OsStr {
+        c_to_os(request.body.1)
     }
 }
 
@@ -119,9 +123,9 @@ impl<'o> ReplyXattrRead<'o> for Getxattr {
     }
 }
 
-impl<'o> Request<'o, Listxattr> {
-    pub fn size(&self) -> u32 {
-        self.body.getxattr_in.size
+impl<'o> RequestSize<'o> for Listxattr {
+    fn size(request: &Request<'o, Self>) -> u32 {
+        request.body.getxattr_in.size
     }
 }
 
@@ -140,9 +144,9 @@ impl<'o> ReplyXattrRead<'o> for Listxattr {
     }
 }
 
-impl<'o> Request<'o, Removexattr> {
-    pub fn name(&self) -> &OsStr {
-        c_to_os(self.body)
+impl<'o> RequestName<'o> for Removexattr {
+    fn name<'a>(request: &'a Request<'o, Self>) -> &'a OsStr {
+        c_to_os(request.body)
     }
 }
 

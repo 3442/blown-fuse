@@ -13,7 +13,10 @@ use crate::{
 
 use super::{
     c_to_os, make_entry,
-    traits::{ReplyBuffered, ReplyKnown, ReplyNotFound},
+    traits::{
+        ReplyBuffered, ReplyKnown, ReplyNotFound, RequestHandle, RequestName, RequestOffset,
+        RequestSize,
+    },
     FromRequest,
 };
 
@@ -65,10 +68,9 @@ impl<'o, B> Operation<'o> for BufferedReaddir<B> {
     type ReplyTail = ReaddirState<B>;
 }
 
-impl<'o> Request<'o, Lookup> {
-    /// Returns the name of the entry being looked up in this directory.
-    pub fn name(&self) -> &OsStr {
-        c_to_os(self.body)
+impl<'o> RequestName<'o> for Lookup {
+    fn name<'a>(request: &'a Request<'o, Self>) -> &'a OsStr {
+        c_to_os(request.body)
     }
 }
 
@@ -89,27 +91,21 @@ impl<'o> ReplyFound<'o> for Lookup {
     }
 }
 
-impl<'o> Request<'o, Readdir> {
-    pub fn handle(&self) -> u64 {
-        self.read_in().fh
+impl<'o> RequestHandle<'o> for Readdir {
+    fn handle(request: &Request<'o, Self>) -> u64 {
+        readdir_read_in(request).fh
     }
+}
 
-    /// Returns the base offset in the directory stream to read from.
-    pub fn offset(&self) -> u64 {
-        self.read_in().offset
+impl<'o> RequestOffset<'o> for Readdir {
+    fn offset(request: &Request<'o, Self>) -> u64 {
+        readdir_read_in(request).offset
     }
+}
 
-    pub fn size(&self) -> u32 {
-        self.read_in().size
-    }
-
-    fn read_in(&self) -> &proto::ReadIn {
-        use proto::OpcodeSelect::*;
-
-        match &self.body {
-            Match(readdir_plus) => &readdir_plus.read_in,
-            Alt(readdir) => &readdir.read_in,
-        }
+impl<'o> RequestSize<'o> for Readdir {
+    fn size(request: &Request<'o, Self>) -> u32 {
+        readdir_read_in(request).size
     }
 }
 
@@ -238,4 +234,13 @@ impl<'o> FromRequest<'o, Readdir> for ReaddirState<()> {
 fn dirent_pad_bytes(entry_len: usize) -> usize {
     const ALIGN_MASK: usize = (1 << proto::DIRENT_ALIGNMENT_BITS) - 1;
     ((entry_len + ALIGN_MASK) & !ALIGN_MASK) - entry_len
+}
+
+fn readdir_read_in<'a>(request: &'a Request<'_, Readdir>) -> &'a proto::ReadIn {
+    use proto::OpcodeSelect::*;
+
+    match &request.body {
+        Match(readdir_plus) => &readdir_plus.read_in,
+        Alt(readdir) => &readdir.read_in,
+    }
 }

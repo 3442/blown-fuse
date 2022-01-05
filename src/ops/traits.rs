@@ -1,11 +1,11 @@
 use crate::{
     io::{Entry, FsInfo, Interruptible, Known, Stat},
-    Done, Operation, Reply, Ttl,
+    Done, Ino, Operation, Reply, Request, Ttl,
 };
 
 pub use super::{
     dir::{ReplyEntries, ReplyFound},
-    entry::ReplyStat,
+    entry::{ReplyStat, RequestForget},
     global::ReplyFsInfo,
     open::{ReplyOpen, ReplyPermissionDenied},
     rw::ReplyAll,
@@ -15,6 +15,31 @@ pub use super::{
 use super::make_entry;
 use bytes::BufMut;
 use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
+
+pub trait RequestName<'o>: Operation<'o> {
+    fn name<'a>(request: &'a Request<'o, Self>) -> &'a OsStr;
+}
+
+pub trait RequestSize<'o>: Operation<'o> {
+    fn size(request: &Request<'o, Self>) -> u32;
+}
+
+pub trait RequestOffset<'o>: Operation<'o> {
+    fn offset(request: &Request<'o, Self>) -> u64;
+}
+
+pub trait RequestHandle<'o>: Operation<'o> {
+    fn handle(request: &Request<'o, Self>) -> u64;
+}
+
+pub trait RequestData<'o>: Operation<'o> {
+    fn data<'a>(request: &'a Request<'o, Self>) -> &'a [u8];
+}
+
+pub trait RequestFlags<'o>: Operation<'o> {
+    type Flags: Copy;
+    fn flags(request: &Request<'o, Self>) -> Self::Flags;
+}
 
 pub trait ReplyOk<'o>: Operation<'o> {
     fn ok(reply: Reply<'o, Self>) -> Done<'o> {
@@ -57,6 +82,57 @@ pub trait ReplyGather<'o>: Operation<'o> {
 
     fn gather(reply: Reply<'o, Self>, fragments: &[&[u8]]) -> Done<'o> {
         reply.chain(crate::util::OutputChain::tail(fragments))
+    }
+}
+
+impl<'o, O: Operation<'o>> Request<'o, O> {
+    pub fn name(&self) -> &OsStr
+    where
+        O: RequestName<'o>,
+    {
+        O::name(self)
+    }
+
+    pub fn size(&self) -> u32
+    where
+        O: RequestSize<'o>,
+    {
+        O::size(self)
+    }
+
+    pub fn offset(&self) -> u64
+    where
+        O: RequestOffset<'o>,
+    {
+        O::offset(self)
+    }
+
+    pub fn handle(&self) -> u64
+    where
+        O: RequestHandle<'o>,
+    {
+        O::handle(self)
+    }
+
+    pub fn data(&self) -> &[u8]
+    where
+        O: RequestData<'o>,
+    {
+        O::data(self)
+    }
+
+    pub fn flags(&self) -> O::Flags
+    where
+        O: RequestFlags<'o>,
+    {
+        O::flags(self)
+    }
+
+    pub fn forget_list(&self) -> impl '_ + Iterator<Item = (Ino, u64)>
+    where
+        O: RequestForget<'o>,
+    {
+        O::forget_list(self)
     }
 }
 

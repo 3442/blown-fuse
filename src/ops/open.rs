@@ -4,7 +4,10 @@ use crate::{
     proto, Done, Errno, Operation, Reply, Request,
 };
 
-use super::{traits::ReplyOk, FromRequest};
+use super::{
+    traits::{ReplyOk, RequestFlags, RequestHandle},
+    FromRequest,
+};
 
 pub enum Open {}
 pub enum Release {}
@@ -65,9 +68,11 @@ impl<'o> Operation<'o> for Access {
     type ReplyTail = ();
 }
 
-impl<'o> Request<'o, Open> {
-    pub fn flags(&self) -> OpenFlags {
-        OpenFlags::from_bits_truncate(self.body.flags.try_into().unwrap_or_default())
+impl<'o> RequestFlags<'o> for Open {
+    type Flags = OpenFlags;
+
+    fn flags(request: &Request<'o, Self>) -> Self::Flags {
+        OpenFlags::from_bits_truncate(request.body.flags as _)
     }
 }
 
@@ -80,9 +85,9 @@ impl<'o> ReplyOk<'o> for Open {
 impl<'o> ReplyOpen<'o> for Open {}
 impl<'o> ReplyPermissionDenied<'o> for Open {}
 
-impl<'o> Request<'o, Release> {
-    pub fn handle(&self) -> u64 {
-        self.body.fh
+impl<'o> RequestHandle<'o> for Release {
+    fn handle(request: &Request<'o, Self>) -> u64 {
+        request.body.fh
     }
 }
 
@@ -97,17 +102,19 @@ impl<'o> ReplyOk<'o> for Opendir {
 impl<'o> ReplyPermissionDenied<'o> for Opendir {}
 impl<'o> ReplyOpen<'o> for Opendir {}
 
-impl<'o> Request<'o, Releasedir> {
-    pub fn handle(&self) -> u64 {
-        self.body.release_in.fh
+impl<'o> RequestHandle<'o> for Releasedir {
+    fn handle(request: &Request<'o, Self>) -> u64 {
+        request.body.release_in.fh
     }
 }
 
 impl<'o> ReplyOk<'o> for Releasedir {}
 
-impl<'o> Request<'o, Access> {
-    pub fn mask(&self) -> AccessFlags {
-        AccessFlags::from_bits_truncate(self.body.mask as i32)
+impl<'o> RequestFlags<'o> for Access {
+    type Flags = AccessFlags;
+
+    fn flags(request: &Request<'o, Self>) -> Self::Flags {
+        AccessFlags::from_bits_truncate(request.body.mask as i32)
     }
 }
 

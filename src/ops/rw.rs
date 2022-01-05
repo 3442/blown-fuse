@@ -1,5 +1,5 @@
 use super::{
-    traits::{ReplyGather, ReplyOk},
+    traits::{ReplyGather, ReplyOk, RequestData, RequestHandle, RequestOffset, RequestSize},
     FromRequest,
 };
 
@@ -45,33 +45,41 @@ impl<'o> Operation<'o> for Flush {
 
 impl<'o> ReplyGather<'o> for Readlink {}
 
-impl<'o> Request<'o, Read> {
-    pub fn handle(&self) -> u64 {
-        self.body.fh
+impl<'o> RequestHandle<'o> for Read {
+    fn handle(request: &Request<'o, Self>) -> u64 {
+        request.body.fh
     }
+}
 
-    pub fn offset(&self) -> u64 {
-        self.body.offset
+impl<'o> RequestOffset<'o> for Read {
+    fn offset(request: &Request<'o, Self>) -> u64 {
+        request.body.offset
     }
+}
 
-    pub fn size(&self) -> u32 {
-        self.body.size
+impl<'o> RequestSize<'o> for Read {
+    fn size(request: &Request<'o, Self>) -> u32 {
+        request.body.size
     }
 }
 
 impl<'o> ReplyGather<'o> for Read {}
 
-impl<'o> Request<'o, Write> {
-    pub fn handle(&self) -> u64 {
-        self.body.0.fh
+impl<'o> RequestHandle<'o> for Write {
+    fn handle(request: &Request<'o, Self>) -> u64 {
+        request.body.0.fh
     }
+}
 
-    pub fn offset(&self) -> u64 {
-        self.body.0.offset
+impl<'o> RequestOffset<'o> for Write {
+    fn offset(request: &Request<'o, Self>) -> u64 {
+        request.body.0.offset
     }
+}
 
-    pub fn data(&self) -> &[u8] {
-        self.body.1
+impl<'o> RequestData<'o> for Write {
+    fn data<'a>(request: &'a Request<'o, Self>) -> &'a [u8] {
+        request.body.1
     }
 }
 
@@ -85,9 +93,9 @@ impl<'o> ReplyAll<'o> for Write {
     }
 }
 
-impl<'o> Request<'o, Flush> {
-    pub fn handle(&self) -> u64 {
-        self.body.fh
+impl<'o> RequestHandle<'o> for Flush {
+    fn handle(request: &Request<'o, Self>) -> u64 {
+        request.body.fh
     }
 }
 

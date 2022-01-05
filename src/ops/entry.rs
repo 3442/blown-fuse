@@ -1,11 +1,20 @@
-use super::traits::ReplyOk;
+use super::traits::{ReplyOk, RequestHandle};
 use crate::{io::Stat, private_trait::Sealed, proto, Done, Ino, Operation, Reply, Request};
 
 pub enum Forget {}
 pub enum Getattr {}
 
+pub trait RequestForget<'o>: Operation<'o> {
+    fn forget_list<'a>(request: &'a Request<'o, Self>) -> ForgetList<'a>;
+}
+
 pub trait ReplyStat<'o>: Operation<'o> {
     fn stat(reply: Reply<'o, Self>, inode: &impl Stat) -> Done<'o>;
+}
+
+pub enum ForgetList<'a> {
+    Single(Option<(Ino, u64)>),
+    Batch(std::slice::Iter<'a, proto::ForgetOne>),
 }
 
 impl Sealed for Forget {}
@@ -26,22 +35,17 @@ impl<'o> Operation<'o> for Getattr {
     type ReplyTail = ();
 }
 
-impl<'o> Request<'o, Forget> {
-    pub fn forget_list(&self) -> impl '_ + Iterator<Item = (Ino, u64)> {
-        use proto::OpcodeSelect::*;
+impl<'o> RequestForget<'o> for Forget {
+    fn forget_list<'a>(request: &'a Request<'o, Self>) -> ForgetList<'a> {
+        use {proto::OpcodeSelect::*, ForgetList::*};
 
-        enum List<'a> {
-            Single(Option<(Ino, u64)>),
-            Batch(std::slice::Iter<'a, proto::ForgetOne>),
-        }
-
-        impl Iterator for List<'_> {
+        impl Iterator for ForgetList<'_> {
             type Item = (Ino, u64);
 
             fn next(&mut self) -> Option<Self::Item> {
                 match self {
-                    List::Single(single) => single.take(),
-                    List::Batch(batch) => {
+                    Single(single) => single.take(),
+                    Batch(batch) => {
                         let forget = batch.next()?;
                         Some((Ino(forget.ino), forget.nlookup))
                     }
@@ -49,9 +53,9 @@ impl<'o> Request<'o, Forget> {
             }
         }
 
-        match self.body {
-            Match((_, slice)) => List::Batch(slice.iter()),
-            Alt(single) => List::Single(Some((self.ino(), single.nlookup))),
+        match request.body {
+            Match((_, slice)) => Batch(slice.iter()),
+            Alt(single) => Single(Some((request.ino(), single.nlookup))),
         }
     }
 }
@@ -63,9 +67,9 @@ impl<'o> ReplyOk<'o> for Forget {
     }
 }
 
-impl<'o> Request<'o, Getattr> {
-    pub fn handle(&self) -> u64 {
-        self.body.fh
+impl<'o> RequestHandle<'o> for Getattr {
+    fn handle(request: &Request<'o, Self>) -> u64 {
+        request.body.fh
     }
 }
 
