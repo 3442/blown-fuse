@@ -1,8 +1,19 @@
-use super::traits::{ReplyOk, RequestHandle};
-use crate::{io::Stat, private_trait::Sealed, proto, Done, Ino, Operation, Reply, Request};
+use crate::{
+    io::{Mode, Stat},
+    private_trait::Sealed,
+    proto, Done, Ino, Operation, Reply, Request,
+};
+
+use super::{
+    c_to_os,
+    traits::{ReplyKnown, ReplyOk, RequestHandle, RequestMode, RequestName},
+};
+
+use std::ffi::{CStr, OsStr};
 
 pub enum Forget {}
 pub enum Getattr {}
+pub enum Mkdir {}
 
 pub trait RequestForget<'o>: Operation<'o> {
     fn forget_list<'a>(request: &'a Request<'o, Self>) -> ForgetList<'a>;
@@ -19,6 +30,7 @@ pub enum ForgetList<'a> {
 
 impl Sealed for Forget {}
 impl Sealed for Getattr {}
+impl Sealed for Mkdir {}
 
 impl<'o> Operation<'o> for Forget {
     type RequestBody = proto::OpcodeSelect<
@@ -32,6 +44,11 @@ impl<'o> Operation<'o> for Forget {
 
 impl<'o> Operation<'o> for Getattr {
     type RequestBody = &'o proto::GetattrIn;
+    type ReplyTail = ();
+}
+
+impl<'o> Operation<'o> for Mkdir {
+    type RequestBody = (&'o proto::MkdirIn, &'o CStr);
     type ReplyTail = ();
 }
 
@@ -86,3 +103,19 @@ impl<'o> ReplyStat<'o> for Getattr {
         })
     }
 }
+
+impl<'o> RequestName<'o> for Mkdir {
+    fn name<'a>(request: &'a Request<'o, Self>) -> &'a OsStr {
+        let (_header, name) = request.body;
+        c_to_os(name)
+    }
+}
+
+impl<'o> RequestMode<'o> for Mkdir {
+    fn mode(request: &Request<'o, Self>) -> Mode {
+        let (header, _name) = request.body;
+        Mode::from_bits_truncate(header.mode)
+    }
+}
+
+impl<'o> ReplyKnown<'o> for Mkdir {}

@@ -1,5 +1,5 @@
 use crate::{
-    io::{Entry, FsInfo, Interruptible, Known, Stat},
+    io::{Entry, FsInfo, Interruptible, Known, Mode, Stat},
     Done, Ino, Operation, Reply, Request, Ttl,
 };
 
@@ -39,6 +39,10 @@ pub trait RequestData<'o>: Operation<'o> {
 pub trait RequestFlags<'o>: Operation<'o> {
     type Flags: Copy;
     fn flags(request: &Request<'o, Self>) -> Self::Flags;
+}
+
+pub trait RequestMode<'o>: Operation<'o> {
+    fn mode(request: &Request<'o, Self>) -> Mode;
 }
 
 pub trait ReplyOk<'o>: Operation<'o> {
@@ -126,6 +130,13 @@ impl<'o, O: Operation<'o>> Request<'o, O> {
         O: RequestFlags<'o>,
     {
         O::flags(self)
+    }
+
+    pub fn mode(&self) -> Mode
+    where
+        O: RequestMode<'o>,
+    {
+        O::mode(self)
     }
 
     pub fn forget_list(&self) -> impl '_ + Iterator<Item = (Ino, u64)>

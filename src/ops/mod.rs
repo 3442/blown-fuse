@@ -12,7 +12,7 @@ use bytemuck::{bytes_of, Pod};
 pub mod traits;
 
 pub use dir::{BufferedReaddir, Lookup, Readdir};
-pub use entry::{Forget, Getattr};
+pub use entry::{Forget, Getattr, Mkdir};
 pub use global::{Init, Statfs};
 pub use open::{Access, Open, Opendir, Release, Releasedir};
 pub use rw::{Flush, Read, Readlink, Write};
