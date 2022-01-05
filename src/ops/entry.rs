@@ -14,6 +14,7 @@ use std::ffi::{CStr, OsStr};
 pub enum Forget {}
 pub enum Getattr {}
 pub enum Mkdir {}
+pub enum Unlink {}
 pub enum Rmdir {}
 
 pub trait RequestForget<'o>: Operation<'o> {
@@ -32,6 +33,7 @@ pub enum ForgetList<'a> {
 impl Sealed for Forget {}
 impl Sealed for Getattr {}
 impl Sealed for Mkdir {}
+impl Sealed for Unlink {}
 impl Sealed for Rmdir {}
 
 impl<'o> Operation<'o> for Forget {
@@ -51,6 +53,11 @@ impl<'o> Operation<'o> for Getattr {
 
 impl<'o> Operation<'o> for Mkdir {
     type RequestBody = (&'o proto::MkdirIn, &'o CStr);
+    type ReplyTail = ();
+}
+
+impl<'o> Operation<'o> for Unlink {
+    type RequestBody = &'o CStr; // name()
     type ReplyTail = ();
 }
 
@@ -126,6 +133,14 @@ impl<'o> RequestMode<'o> for Mkdir {
 }
 
 impl<'o> ReplyKnown<'o> for Mkdir {}
+
+impl<'o> RequestName<'o> for Unlink {
+    fn name<'a>(request: &'a Request<'o, Self>) -> &'a OsStr {
+        c_to_os(request.body)
+    }
+}
+
+impl<'o> ReplyOk<'o> for Unlink {}
 
 impl<'o> RequestName<'o> for Rmdir {
     fn name<'a>(request: &'a Request<'o, Self>) -> &'a OsStr {

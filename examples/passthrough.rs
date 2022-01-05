@@ -145,6 +145,13 @@ impl Passthrough {
         reply.known(New(&mut self.known, Inode::new(path, metadata)), Ttl::MAX)
     }
 
+    async fn unlink<'o>(&mut self, (request, reply): Op<'o, ops::Unlink>) -> Done<'o> {
+        let (reply, inode) = reply.and_then(self.known(request.ino()))?;
+        let (reply, ()) = reply.and_then(fs::remove_file(inode.path.join(request.name())).await)?;
+
+        reply.ok()
+    }
+
     async fn rmdir<'o>(&mut self, (request, reply): Op<'o, ops::Rmdir>) -> Done<'o> {
         let (reply, inode) = reply.and_then(self.known(request.ino()))?;
 
@@ -359,6 +366,7 @@ async fn main_loop(session: Start, mut fs: Passthrough) -> FuseResult<()> {
                 Getattr(getattr) => fs.getattr(getattr.op()?),
                 Readlink(readlink) => fs.readlink(readlink.op()?).await,
                 Mkdir(mkdir) => fs.mkdir(mkdir.op()?).await,
+                Unlink(unlink) => fs.unlink(unlink.op()?).await,
                 Rmdir(rmdir) => fs.rmdir(rmdir.op()?).await,
                 Open(open) => fs.open(open.op()?).await,
                 Read(read) => fs.read(read.op()?).await,
