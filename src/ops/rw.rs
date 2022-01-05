@@ -25,22 +25,22 @@ impl Sealed for Flush {}
 
 impl<'o> Operation<'o> for Readlink {
     type RequestBody = ();
-    type ReplyTail = ();
+    type ReplyState = ();
 }
 
 impl<'o> Operation<'o> for Read {
     type RequestBody = &'o proto::ReadIn;
-    type ReplyTail = ();
+    type ReplyState = ();
 }
 
 impl<'o> Operation<'o> for Write {
     type RequestBody = (&'o proto::WriteIn, &'o [u8]);
-    type ReplyTail = WriteState;
+    type ReplyState = WriteState;
 }
 
 impl<'o> Operation<'o> for Flush {
     type RequestBody = &'o proto::FlushIn;
-    type ReplyTail = ();
+    type ReplyState = ();
 }
 
 impl<'o> ReplyGather<'o> for Readlink {}
@@ -85,7 +85,7 @@ impl<'o> RequestData<'o> for Write {
 
 impl<'o> ReplyAll<'o> for Write {
     fn all(reply: Reply<'o, Self>) -> Done<'o> {
-        let size = reply.tail.size;
+        let size = reply.state.size;
         reply.single(&proto::WriteOut {
             size,
             padding: Default::default(),

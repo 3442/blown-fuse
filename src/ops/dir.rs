@@ -50,7 +50,7 @@ impl<B> Sealed for BufferedReaddir<B> {}
 
 impl<'o> Operation<'o> for Lookup {
     type RequestBody = &'o CStr; // name()
-    type ReplyTail = ();
+    type ReplyState = ();
 }
 
 impl<'o> Operation<'o> for Readdir {
@@ -60,12 +60,12 @@ impl<'o> Operation<'o> for Readdir {
         { proto::Opcode::ReaddirPlus as u32 },
     >;
 
-    type ReplyTail = ReaddirState<()>;
+    type ReplyState = ReaddirState<()>;
 }
 
 impl<'o, B> Operation<'o> for BufferedReaddir<B> {
     type RequestBody = (); // Never actually created
-    type ReplyTail = ReaddirState<B>;
+    type ReplyState = ReaddirState<B>;
 }
 
 impl<'o> RequestName<'o> for Lookup {
@@ -122,12 +122,12 @@ where
             max_read,
             is_plus,
             buffer: (),
-        } = reply.tail;
+        } = reply.state;
 
         Reply {
             session: reply.session,
             unique: reply.unique,
-            tail: ReaddirState {
+            state: ReaddirState {
                 max_read,
                 is_plus,
                 buffer,
@@ -138,7 +138,7 @@ where
 
 impl<'o, B: BufMut + AsRef<[u8]>> ReplyEntries<'o> for BufferedReaddir<B> {
     fn entry(mut reply: Reply<'o, Self>, entry: Entry<impl Known>) -> Interruptible<'o, Self, ()> {
-        let entry_header_len = if reply.tail.is_plus {
+        let entry_header_len = if reply.state.is_plus {
             std::mem::size_of::<proto::DirentPlus>()
         } else {
             std::mem::size_of::<proto::Dirent>()
@@ -147,10 +147,10 @@ impl<'o, B: BufMut + AsRef<[u8]>> ReplyEntries<'o> for BufferedReaddir<B> {
         let name = entry.name.as_bytes();
         let padding_len = dirent_pad_bytes(entry_header_len + name.len());
 
-        let buffer = &mut reply.tail.buffer;
+        let buffer = &mut reply.state.buffer;
         let remaining = buffer
             .remaining_mut()
-            .min(reply.tail.max_read - buffer.as_ref().len());
+            .min(reply.state.max_read - buffer.as_ref().len());
 
         let record_len = entry_header_len + name.len() + padding_len;
         if remaining < record_len {
@@ -186,7 +186,7 @@ impl<'o, B: BufMut + AsRef<[u8]>> ReplyEntries<'o> for BufferedReaddir<B> {
             DirentPlus(proto::DirentPlus),
         }
 
-        let ent = if reply.tail.is_plus {
+        let ent = if reply.state.is_plus {
             let (attrs, attrs_ttl) = inode.attrs();
             let attrs = attrs.finish(inode);
             let entry_out = make_entry((ino, entry.ttl), (attrs, attrs_ttl));
@@ -217,7 +217,7 @@ impl<'o, B: BufMut + AsRef<[u8]>> ReplyEntries<'o> for BufferedReaddir<B> {
     }
 
     fn end(reply: Reply<'o, Self>) -> Done<'o> {
-        reply.inner(|reply| reply.tail.buffer.as_ref())
+        reply.inner(|reply| reply.state.buffer.as_ref())
     }
 }
 

@@ -43,27 +43,27 @@ impl<'o> Operation<'o> for Forget {
         { proto::Opcode::BatchForget as u32 },
     >;
 
-    type ReplyTail = ();
+    type ReplyState = ();
 }
 
 impl<'o> Operation<'o> for Getattr {
     type RequestBody = &'o proto::GetattrIn;
-    type ReplyTail = ();
+    type ReplyState = ();
 }
 
 impl<'o> Operation<'o> for Mkdir {
     type RequestBody = (&'o proto::MkdirIn, &'o CStr);
-    type ReplyTail = ();
+    type ReplyState = ();
 }
 
 impl<'o> Operation<'o> for Unlink {
     type RequestBody = &'o CStr; // name()
-    type ReplyTail = ();
+    type ReplyState = ();
 }
 
 impl<'o> Operation<'o> for Rmdir {
     type RequestBody = &'o CStr; // name()
-    type ReplyTail = ();
+    type ReplyState = ();
 }
 
 impl<'o> RequestForget<'o> for Forget {

@@ -15,9 +15,9 @@ pub enum Opendir {}
 pub enum Releasedir {}
 pub enum Access {}
 
-pub trait ReplyOpen<'o>: ReplyOk<'o, ReplyTail = proto::OpenOutFlags> {
+pub trait ReplyOpen<'o>: ReplyOk<'o, ReplyState = proto::OpenOutFlags> {
     fn ok_with_handle(reply: Reply<'o, Self>, handle: u64) -> Done<'o> {
-        let open_flags = reply.tail.bits();
+        let open_flags = reply.state.bits();
 
         reply.single(&proto::OpenOut {
             fh: handle,
@@ -27,7 +27,7 @@ pub trait ReplyOpen<'o>: ReplyOk<'o, ReplyTail = proto::OpenOutFlags> {
     }
 
     fn force_direct_io(reply: &mut Reply<'o, Self>) {
-        reply.tail |= proto::OpenOutFlags::DIRECT_IO;
+        reply.state |= proto::OpenOutFlags::DIRECT_IO;
     }
 }
 
@@ -45,27 +45,27 @@ impl Sealed for Access {}
 
 impl<'o> Operation<'o> for Open {
     type RequestBody = &'o proto::OpenIn;
-    type ReplyTail = proto::OpenOutFlags;
+    type ReplyState = proto::OpenOutFlags;
 }
 
 impl<'o> Operation<'o> for Release {
     type RequestBody = &'o proto::ReleaseIn;
-    type ReplyTail = ();
+    type ReplyState = ();
 }
 
 impl<'o> Operation<'o> for Opendir {
     type RequestBody = &'o proto::OpendirIn;
-    type ReplyTail = proto::OpenOutFlags;
+    type ReplyState = proto::OpenOutFlags;
 }
 
 impl<'o> Operation<'o> for Releasedir {
     type RequestBody = &'o proto::ReleasedirIn;
-    type ReplyTail = ();
+    type ReplyState = ();
 }
 
 impl<'o> Operation<'o> for Access {
     type RequestBody = &'o proto::AccessIn;
-    type ReplyTail = ();
+    type ReplyState = ();
 }
 
 impl<'o> RequestFlags<'o> for Open {

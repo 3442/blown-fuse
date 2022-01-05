@@ -34,22 +34,22 @@ impl Sealed for Removexattr {}
 impl<'o> Operation<'o> for Setxattr {
     // header, name, value
     type RequestBody = (&'o proto::SetxattrIn, &'o CStr, &'o [u8]);
-    type ReplyTail = ();
+    type ReplyState = ();
 }
 
 impl<'o> Operation<'o> for Getxattr {
     type RequestBody = (&'o proto::GetxattrIn, &'o CStr);
-    type ReplyTail = XattrReadState;
+    type ReplyState = XattrReadState;
 }
 
 impl<'o> Operation<'o> for Listxattr {
     type RequestBody = &'o proto::ListxattrIn;
-    type ReplyTail = XattrReadState;
+    type ReplyState = XattrReadState;
 }
 
 impl<'o> Operation<'o> for Removexattr {
     type RequestBody = &'o CStr;
-    type ReplyTail = ();
+    type ReplyState = ();
 }
 
 impl<'o> RequestName<'o> for Setxattr {
@@ -102,9 +102,9 @@ impl<'o> ReplyGather<'o> for Getxattr {
             .try_into()
             .expect("Extremely large xattr");
 
-        if reply.tail.size == 0 {
+        if reply.state.size == 0 {
             return reply.requires_size(size);
-        } else if reply.tail.size < size {
+        } else if reply.state.size < size {
             return reply.buffer_too_small();
         }
 
@@ -114,7 +114,7 @@ impl<'o> ReplyGather<'o> for Getxattr {
 
 impl<'o> ReplyXattrRead<'o> for Getxattr {
     fn requires_size(reply: Reply<'o, Self>, size: u32) -> Done<'o> {
-        assert_eq!(reply.tail.size, 0);
+        assert_eq!(reply.state.size, 0);
 
         reply.single(&proto::GetxattrOut {
             size,
@@ -133,7 +133,7 @@ impl<'o> ReplyXattrRead<'o> for Listxattr {
     //TODO: buffered(), gather()
 
     fn requires_size(reply: Reply<'o, Self>, size: u32) -> Done<'o> {
-        assert_eq!(reply.tail.size, 0);
+        assert_eq!(reply.state.size, 0);
 
         reply.single(&proto::ListxattrOut {
             getxattr_out: proto::GetxattrOut {

@@ -18,12 +18,12 @@ impl Sealed for Statfs {}
 
 impl<'o> Operation<'o> for Init {
     type RequestBody = &'o proto::InitIn;
-    type ReplyTail = InitState;
+    type ReplyState = InitState;
 }
 
 impl<'o> Operation<'o> for Statfs {
     type RequestBody = ();
-    type ReplyTail = ();
+    type ReplyState = ();
 }
 
 impl<'o> ReplyOk<'o> for Init {
@@ -31,7 +31,7 @@ impl<'o> ReplyOk<'o> for Init {
         let InitState {
             kernel_flags,
             buffer_pages,
-        } = reply.tail;
+        } = reply.state;
 
         let flags = {
             use proto::InitFlags;

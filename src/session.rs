@@ -184,7 +184,7 @@ impl Session {
         let reply = Reply {
             session: self,
             unique: header.unique,
-            tail: ops::InitState {
+            state: ops::InitState {
                 kernel_flags: proto::InitFlags::from_bits_truncate(body.flags),
                 buffer_pages: self.buffer_pages,
             },
@@ -431,7 +431,7 @@ impl Start {
 
 impl<'o, O: Operation<'o>> Incoming<'o, O>
 where
-    O::ReplyTail: FromRequest<'o, O>,
+    O::ReplyState: FromRequest<'o, O>,
 {
     pub fn op(self) -> Result<Op<'o, O>, Done<'o>> {
         try_op(
@@ -472,7 +472,7 @@ where
 
 impl<O: for<'o> Operation<'o>> Owned<O>
 where
-    for<'o> <O as Operation<'o>>::ReplyTail: FromRequest<'o, O>,
+    for<'o> <O as Operation<'o>>::ReplyState: FromRequest<'o, O>,
 {
     pub async fn op<'o, F, Fut>(&'o self, handler: F)
     where
@@ -522,7 +522,7 @@ impl<'o> IncomingCommon<'o> {
         let reply = Reply {
             session: self.session,
             unique: self.header.unique,
-            tail: (),
+            state: (),
         };
 
         (request, reply)
@@ -541,7 +541,7 @@ fn try_op<'o, O: Operation<'o>>(
     header: InHeader,
 ) -> Result<Op<'o, O>, Done<'o>>
 where
-    O::ReplyTail: FromRequest<'o, O>,
+    O::ReplyState: FromRequest<'o, O>,
 {
     let body = match Structured::toplevel_from(&bytes[HEADER_END..header.len as usize], &header) {
         Ok(body) => body,
@@ -550,7 +550,7 @@ where
             let reply = Reply::<ops::Any> {
                 session,
                 unique: header.unique,
-                tail: (),
+                state: (),
             };
 
             return Err(reply.io_error());
@@ -561,7 +561,7 @@ where
     let reply = Reply {
         session,
         unique: header.unique,
-        tail: FromRequest::from_request(&request),
+        state: FromRequest::from_request(&request),
     };
 
     Ok((request, reply))

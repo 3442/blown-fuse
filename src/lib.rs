@@ -27,7 +27,7 @@ mod util;
 
 pub trait Operation<'o>: private_trait::Sealed + Sized {
     type RequestBody: crate::proto::Structured<'o>;
-    type ReplyTail;
+    type ReplyState;
 }
 
 pub type Op<'o, O = ops::Any> = (Request<'o, O>, Reply<'o, O>);
@@ -41,7 +41,7 @@ pub struct Request<'o, O: Operation<'o>> {
 pub struct Reply<'o, O: Operation<'o>> {
     session: &'o session::Session,
     unique: u64,
-    tail: O::ReplyTail,
+    state: O::ReplyState,
 }
 
 /// Inode number.

@@ -38,7 +38,7 @@ impl Sealed for Any {}
 
 impl<'o> Operation<'o> for Any {
     type RequestBody = ();
-    type ReplyTail = ();
+    type ReplyState = ();
 }
 
 impl<'o, O: Operation<'o>> FromRequest<'o, O> for () {
