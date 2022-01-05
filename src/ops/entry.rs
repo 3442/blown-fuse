@@ -14,6 +14,7 @@ use std::ffi::{CStr, OsStr};
 pub enum Forget {}
 pub enum Getattr {}
 pub enum Mkdir {}
+pub enum Rmdir {}
 
 pub trait RequestForget<'o>: Operation<'o> {
     fn forget_list<'a>(request: &'a Request<'o, Self>) -> ForgetList<'a>;
@@ -31,6 +32,7 @@ pub enum ForgetList<'a> {
 impl Sealed for Forget {}
 impl Sealed for Getattr {}
 impl Sealed for Mkdir {}
+impl Sealed for Rmdir {}
 
 impl<'o> Operation<'o> for Forget {
     type RequestBody = proto::OpcodeSelect<
@@ -49,6 +51,11 @@ impl<'o> Operation<'o> for Getattr {
 
 impl<'o> Operation<'o> for Mkdir {
     type RequestBody = (&'o proto::MkdirIn, &'o CStr);
+    type ReplyTail = ();
+}
+
+impl<'o> Operation<'o> for Rmdir {
+    type RequestBody = &'o CStr; // name()
     type ReplyTail = ();
 }
 
@@ -119,3 +126,11 @@ impl<'o> RequestMode<'o> for Mkdir {
 }
 
 impl<'o> ReplyKnown<'o> for Mkdir {}
+
+impl<'o> RequestName<'o> for Rmdir {
+    fn name<'a>(request: &'a Request<'o, Self>) -> &'a OsStr {
+        c_to_os(request.body)
+    }
+}
+
+impl<'o> ReplyOk<'o> for Rmdir {}
