@@ -16,9 +16,14 @@ pub enum Getattr {}
 pub enum Mkdir {}
 pub enum Unlink {}
 pub enum Rmdir {}
+pub enum Link {}
 
 pub trait RequestForget<'o>: Operation<'o> {
     fn forget_list<'a>(request: &'a Request<'o, Self>) -> ForgetList<'a>;
+}
+
+pub trait RequestLink<'o>: Operation<'o> {
+    fn source_ino(request: &Request<'o, Self>) -> Ino;
 }
 
 pub trait ReplyStat<'o>: Operation<'o> {
@@ -35,6 +40,7 @@ impl Sealed for Getattr {}
 impl Sealed for Mkdir {}
 impl Sealed for Unlink {}
 impl Sealed for Rmdir {}
+impl Sealed for Link {}
 
 impl<'o> Operation<'o> for Forget {
     type RequestBody = proto::OpcodeSelect<
@@ -63,6 +69,11 @@ impl<'o> Operation<'o> for Unlink {
 
 impl<'o> Operation<'o> for Rmdir {
     type RequestBody = &'o CStr; // name()
+    type ReplyState = ();
+}
+
+impl<'o> Operation<'o> for Link {
+    type RequestBody = (&'o proto::LinkIn, &'o CStr);
     type ReplyState = ();
 }
 
@@ -149,3 +160,19 @@ impl<'o> RequestName<'o> for Rmdir {
 }
 
 impl<'o> ReplyOk<'o> for Rmdir {}
+
+impl<'o> RequestName<'o> for Link {
+    fn name<'a>(request: &'a Request<'o, Self>) -> &'a OsStr {
+        let (_header, name) = request.body;
+        c_to_os(name)
+    }
+}
+
+impl<'o> RequestLink<'o> for Link {
+    fn source_ino(request: &Request<'o, Self>) -> Ino {
+        let (header, _name) = request.body;
+        Ino(header.old_ino)
+    }
+}
+
+impl<'o> ReplyKnown<'o> for Link {}

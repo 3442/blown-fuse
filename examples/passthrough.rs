@@ -368,6 +368,7 @@ async fn main_loop(session: Start, mut fs: Passthrough) -> FuseResult<()> {
                 Mkdir(mkdir) => fs.mkdir(mkdir.op()?).await,
                 Unlink(unlink) => fs.unlink(unlink.op()?).await,
                 Rmdir(rmdir) => fs.rmdir(rmdir.op()?).await,
+                //TODO: Link
                 Open(open) => fs.open(open.op()?).await,
                 Read(read) => fs.read(read.op()?).await,
                 Write(write) => fs.write(write.op()?).await,
