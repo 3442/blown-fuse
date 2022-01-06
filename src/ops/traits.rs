@@ -5,7 +5,7 @@ use crate::{
 
 pub use super::{
     dir::{ReplyEntries, ReplyFound},
-    entry::{ReplyStat, RequestForget, RequestLink},
+    entry::{ReplyStat, RequestForget, RequestLink, RequestTarget},
     global::ReplyFsInfo,
     open::{ReplyOpen, ReplyPermissionDenied},
     rw::ReplyAll,
@@ -144,6 +144,13 @@ impl<'o, O: Operation<'o>> Request<'o, O> {
         O: RequestForget<'o>,
     {
         O::forget_list(self)
+    }
+
+    pub fn target(&self) -> &OsStr
+    where
+        O: RequestTarget<'o>,
+    {
+        O::target(self)
     }
 
     pub fn source_ino(&self) -> Ino

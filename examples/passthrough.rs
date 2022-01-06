@@ -161,6 +161,16 @@ impl Passthrough {
         reply.ok()
     }
 
+    async fn symlink<'o>(&mut self, (request, reply): Op<'o, ops::Symlink>) -> Done<'o> {
+        let (reply, inode) = reply.and_then(self.known(request.ino()))?;
+        let path = inode.path.join(request.name());
+
+        let (reply, ()) = reply.and_then(fs::symlink(request.target(), &path).await)?;
+        let (reply, metadata) = reply.and_then(fs::symlink_metadata(&path).await)?;
+
+        reply.known(New(&mut self.known, Inode::new(path, metadata)), Ttl::MAX)
+    }
+
     async fn open<'o>(&mut self, (request, reply): Op<'o, ops::Open>) -> Done<'o> {
         let (reply, inode) = reply.and_then(self.known(request.ino()))?;
         let options = {
@@ -368,6 +378,7 @@ async fn main_loop(session: Start, mut fs: Passthrough) -> FuseResult<()> {
                 Mkdir(mkdir) => fs.mkdir(mkdir.op()?).await,
                 Unlink(unlink) => fs.unlink(unlink.op()?).await,
                 Rmdir(rmdir) => fs.rmdir(rmdir.op()?).await,
+                Symlink(symlink) => fs.symlink(symlink.op()?).await,
                 //TODO: Link
                 Open(open) => fs.open(open.op()?).await,
                 Read(read) => fs.read(read.op()?).await,
