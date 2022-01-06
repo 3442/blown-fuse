@@ -63,6 +63,11 @@ impl<'o> RequestMode<'o> for Mkdir {
         let (header, _name) = request.body;
         Mode::from_bits_truncate(header.mode)
     }
+
+    fn umask(request: &Request<'o, Self>) -> Mode {
+        let (header, _name) = request.body;
+        Mode::from_bits_truncate(header.umask)
+    }
 }
 
 impl<'o> ReplyKnown<'o> for Mkdir {}

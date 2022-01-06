@@ -44,6 +44,7 @@ pub trait RequestFlags<'o>: Operation<'o> {
 
 pub trait RequestMode<'o>: Operation<'o> {
     fn mode(request: &Request<'o, Self>) -> Mode;
+    fn umask(request: &Request<'o, Self>) -> Mode;
 }
 
 pub trait ReplyOk<'o>: Operation<'o> {
@@ -140,6 +141,13 @@ impl<'o, O: Operation<'o>> Request<'o, O> {
         O::mode(self)
     }
 
+    pub fn umask(&self) -> Mode
+    where
+        O: RequestMode<'o>,
+    {
+        O::umask(self)
+    }
+
     pub fn forget_list(&self) -> impl '_ + Iterator<Item = (Ino, u64)>
     where
         O: RequestForget<'o>,
@@ -200,9 +208,16 @@ impl<'o, O: Operation<'o>> Reply<'o, O> {
 
     pub fn ok_with_handle(self, handle: u64) -> Done<'o>
     where
-        O: ReplyOpen<'o>,
+        O: ReplyOpen<'o> + ReplyOk<'o>,
     {
         O::ok_with_handle(self, handle)
+    }
+
+    pub fn known_with_handle(self, known: impl Known, ttl: Ttl, handle: u64) -> Done<'o>
+    where
+        O: ReplyOpen<'o> + ReplyKnown<'o>,
+    {
+        O::known_with_handle(self, known, ttl, handle)
     }
 
     pub fn force_direct_io(&mut self)

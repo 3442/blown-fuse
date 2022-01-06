@@ -80,6 +80,7 @@ pub enum Dispatch<'o> {
     Releasedir(Incoming<'o, ops::Releasedir>),
     Fsyncdir(Incoming<'o, ops::Fsyncdir>),
     Access(Incoming<'o, ops::Access>),
+    Create(Incoming<'o, ops::Create>),
 }
 
 pub struct Incoming<'o, O: Operation<'o>> {
@@ -280,6 +281,7 @@ impl<'o> Dispatch<'o> {
             Releasedir(incoming) => incoming.common,
             Fsyncdir(incoming) => incoming.common,
             Access(incoming) => incoming.common,
+            Create(incoming) => incoming.common,
         };
 
         common.into_generic_op()
@@ -367,6 +369,7 @@ impl Endpoint<'_> {
                 Releasedir => dispatch!(Releasedir),
                 Fsyncdir => dispatch!(Fsyncdir),
                 Access => dispatch!(Access),
+                Create => dispatch!(Create),
                 BatchForget => dispatch!(Forget),
                 ReaddirPlus => dispatch!(Readdir),
 
