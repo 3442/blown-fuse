@@ -1,14 +1,18 @@
 use super::{
-    traits::{ReplyGather, ReplyOk, RequestData, RequestHandle, RequestOffset, RequestSize},
+    traits::{
+        ReplyGather, ReplyOk, RequestData, RequestFlags, RequestHandle, RequestOffset, RequestSize,
+    },
     FromRequest,
 };
 
-use crate::{private_trait::Sealed, proto, Done, Operation, Reply, Request};
+use crate::{io::FsyncFlags, private_trait::Sealed, proto, Done, Operation, Reply, Request};
 
 pub enum Readlink {}
 pub enum Read {}
 pub enum Write {}
+pub enum Fsync {}
 pub enum Flush {}
+pub enum Fsyncdir {}
 
 pub struct WriteState {
     size: u32,
@@ -21,7 +25,9 @@ pub trait ReplyAll<'o>: Operation<'o> {
 impl Sealed for Readlink {}
 impl Sealed for Read {}
 impl Sealed for Write {}
+impl Sealed for Fsync {}
 impl Sealed for Flush {}
+impl Sealed for Fsyncdir {}
 
 impl<'o> Operation<'o> for Readlink {
     type RequestBody = ();
@@ -38,8 +44,18 @@ impl<'o> Operation<'o> for Write {
     type ReplyState = WriteState;
 }
 
+impl<'o> Operation<'o> for Fsync {
+    type RequestBody = &'o proto::FsyncIn;
+    type ReplyState = ();
+}
+
 impl<'o> Operation<'o> for Flush {
     type RequestBody = &'o proto::FlushIn;
+    type ReplyState = ();
+}
+
+impl<'o> Operation<'o> for Fsyncdir {
+    type RequestBody = &'o proto::FsyncdirIn;
     type ReplyState = ();
 }
 
@@ -93,6 +109,22 @@ impl<'o> ReplyAll<'o> for Write {
     }
 }
 
+impl<'o> RequestHandle<'o> for Fsync {
+    fn handle(request: &Request<'o, Self>) -> u64 {
+        request.body.fh
+    }
+}
+
+impl<'o> RequestFlags<'o> for Fsync {
+    type Flags = FsyncFlags;
+
+    fn flags(request: &Request<'o, Self>) -> Self::Flags {
+        FsyncFlags::from_bits_truncate(request.body.fsync_flags)
+    }
+}
+
+impl<'o> ReplyOk<'o> for Fsync {}
+
 impl<'o> RequestHandle<'o> for Flush {
     fn handle(request: &Request<'o, Self>) -> u64 {
         request.body.fh
@@ -100,6 +132,22 @@ impl<'o> RequestHandle<'o> for Flush {
 }
 
 impl<'o> ReplyOk<'o> for Flush {}
+
+impl<'o> RequestHandle<'o> for Fsyncdir {
+    fn handle(request: &Request<'o, Self>) -> u64 {
+        request.body.fsync_in.fh
+    }
+}
+
+impl<'o> RequestFlags<'o> for Fsyncdir {
+    type Flags = FsyncFlags;
+
+    fn flags(request: &Request<'o, Self>) -> Self::Flags {
+        FsyncFlags::from_bits_truncate(request.body.fsync_in.fsync_flags)
+    }
+}
+
+impl<'o> ReplyOk<'o> for Fsyncdir {}
 
 impl<'o> FromRequest<'o, Write> for WriteState {
     fn from_request(request: &Request<'o, Write>) -> Self {

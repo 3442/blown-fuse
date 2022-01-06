@@ -15,7 +15,7 @@ pub use dir::{BufferedReaddir, Lookup, Readdir};
 pub use entry::{Forget, Getattr, Link, Mkdir, Rmdir, Symlink, Unlink};
 pub use global::{Init, Statfs};
 pub use open::{Access, Open, Opendir, Release, Releasedir};
-pub use rw::{Flush, Read, Readlink, Write};
+pub use rw::{Flush, Fsync, Fsyncdir, Read, Readlink, Write};
 pub use xattr::{Getxattr, Listxattr, Removexattr, Setxattr};
 
 mod dir;

@@ -12,7 +12,7 @@ use std::{
 };
 
 use blown_fuse::{
-    io::{Attrs, Entry, EntryType, Gid, Known, Mode, OpenFlags, Stat, Uid},
+    io::{Attrs, Entry, EntryType, FsyncFlags, Gid, Known, Mode, OpenFlags, Stat, Uid},
     mount::mount_sync,
     ops,
     session::{Dispatch, Start},
@@ -135,6 +135,16 @@ impl Passthrough {
         reply.blob(&target)
     }
 
+    async fn symlink<'o>(&mut self, (request, reply): Op<'o, ops::Symlink>) -> Done<'o> {
+        let (reply, inode) = reply.and_then(self.known(request.ino()))?;
+        let path = inode.path.join(request.name());
+
+        let (reply, ()) = reply.and_then(fs::symlink(request.target(), &path).await)?;
+        let (reply, metadata) = reply.and_then(fs::symlink_metadata(&path).await)?;
+
+        reply.known(New(&mut self.known, Inode::new(path, metadata)), Ttl::MAX)
+    }
+
     async fn mkdir<'o>(&mut self, (request, reply): Op<'o, ops::Mkdir>) -> Done<'o> {
         let (reply, inode) = reply.and_then(self.known(request.ino()))?;
         let path = inode.path.join(request.name());
@@ -159,16 +169,6 @@ impl Passthrough {
         let (reply, ()) = reply.and_then(fs::remove_dir(inode.path.join(request.name())).await)?;
 
         reply.ok()
-    }
-
-    async fn symlink<'o>(&mut self, (request, reply): Op<'o, ops::Symlink>) -> Done<'o> {
-        let (reply, inode) = reply.and_then(self.known(request.ino()))?;
-        let path = inode.path.join(request.name());
-
-        let (reply, ()) = reply.and_then(fs::symlink(request.target(), &path).await)?;
-        let (reply, metadata) = reply.and_then(fs::symlink_metadata(&path).await)?;
-
-        reply.known(New(&mut self.known, Inode::new(path, metadata)), Ttl::MAX)
     }
 
     async fn open<'o>(&mut self, (request, reply): Op<'o, ops::Open>) -> Done<'o> {
@@ -227,6 +227,21 @@ impl Passthrough {
 
     fn release<'o>(&mut self, (request, reply): Op<'o, ops::Release>) -> Done<'o> {
         self.open_files.entries.remove(&request.handle());
+        reply.ok()
+    }
+
+    async fn fsync<'o>(&mut self, (request, reply): Op<'o, ops::Fsync>) -> Done<'o> {
+        let (reply, file) = reply.and_then(self.open_files.get(request.handle()))?;
+        let (reply, ()) = {
+            let result = if request.flags().contains(FsyncFlags::FDATASYNC) {
+                file.handle.sync_data().await
+            } else {
+                file.handle.sync_all().await
+            };
+
+            reply.and_then(result)?
+        };
+
         reply.ok()
     }
 
@@ -375,15 +390,16 @@ async fn main_loop(session: Start, mut fs: Passthrough) -> FuseResult<()> {
                 Forget(forget) => fs.forget(forget.op()?),
                 Getattr(getattr) => fs.getattr(getattr.op()?),
                 Readlink(readlink) => fs.readlink(readlink.op()?).await,
+                Symlink(symlink) => fs.symlink(symlink.op()?).await,
                 Mkdir(mkdir) => fs.mkdir(mkdir.op()?).await,
                 Unlink(unlink) => fs.unlink(unlink.op()?).await,
                 Rmdir(rmdir) => fs.rmdir(rmdir.op()?).await,
-                Symlink(symlink) => fs.symlink(symlink.op()?).await,
                 //TODO: Link
                 Open(open) => fs.open(open.op()?).await,
                 Read(read) => fs.read(read.op()?).await,
                 Write(write) => fs.write(write.op()?).await,
                 Release(release) => fs.release(release.op()?),
+                Fsync(fsync) => fs.fsync(fsync.op()?).await,
                 Opendir(opendir) => fs.opendir(opendir.op()?).await,
                 Readdir(readdir) => fs.readdir(readdir.op()?).await,
                 Releasedir(releasedir) => fs.releasedir(releasedir.op()?),

@@ -19,6 +19,8 @@ pub use nix::{
     unistd::{AccessFlags, Gid, Pid, Uid},
 };
 
+pub use proto::FsyncFlags;
+
 pub enum Interruptible<'o, O: Operation<'o>, T> {
     Completed(Reply<'o, O>, T),
     Interrupted(Done<'o>),

@@ -332,6 +332,12 @@ pub struct FsyncIn {
     pub padding: u32,
 }
 
+bitflags! {
+    pub struct FsyncFlags: u32 {
+        const FDATASYNC = 1 << 0;
+    }
+}
+
 #[derive(Pod, Zeroable, Copy, Clone)]
 #[repr(C)]
 pub struct SetxattrIn {
