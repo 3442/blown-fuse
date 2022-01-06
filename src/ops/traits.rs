@@ -5,8 +5,9 @@ use crate::{
 
 pub use super::{
     dir::{ReplyEntries, ReplyFound},
-    entry::{ReplyStat, RequestForget, RequestLink, RequestTarget},
+    entry::{RequestLink, RequestTarget},
     global::ReplyFsInfo,
+    inode::{ReplyStat, RequestForget},
     open::{ReplyOpen, ReplyPermissionDenied},
     rw::ReplyAll,
     xattr::ReplyXattrRead,
