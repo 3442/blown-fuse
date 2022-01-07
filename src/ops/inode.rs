@@ -3,13 +3,23 @@ use crate::{io::Stat, private_trait::Sealed, proto, Done, Ino, Operation, Reply,
 
 pub enum Forget {}
 pub enum Getattr {}
+pub enum Bmap {}
 
 pub trait RequestForget<'o>: Operation<'o> {
     fn forget_list<'a>(request: &'a Request<'o, Self>) -> ForgetList<'a>;
 }
 
+pub trait RequestBlock<'o>: Operation<'o> {
+    fn block(request: &Request<'o, Self>) -> u64;
+    fn block_size(request: &Request<'o, Self>) -> u32;
+}
+
 pub trait ReplyStat<'o>: Operation<'o> {
     fn stat(reply: Reply<'o, Self>, inode: &impl Stat) -> Done<'o>;
+}
+
+pub trait ReplyBlock<'o>: Operation<'o> {
+    fn block(reply: Reply<'o, Self>, block: u64) -> Done<'o>;
 }
 
 pub enum ForgetList<'a> {
@@ -19,6 +29,7 @@ pub enum ForgetList<'a> {
 
 impl Sealed for Forget {}
 impl Sealed for Getattr {}
+impl Sealed for Bmap {}
 
 impl<'o> Operation<'o> for Forget {
     type RequestBody = proto::OpcodeSelect<
@@ -32,6 +43,11 @@ impl<'o> Operation<'o> for Forget {
 
 impl<'o> Operation<'o> for Getattr {
     type RequestBody = &'o proto::GetattrIn;
+    type ReplyState = ();
+}
+
+impl<'o> Operation<'o> for Bmap {
+    type RequestBody = &'o proto::BmapIn;
     type ReplyState = ();
 }
 
@@ -84,5 +100,21 @@ impl<'o> ReplyStat<'o> for Getattr {
             dummy: Default::default(),
             attr: attrs,
         })
+    }
+}
+
+impl<'o> RequestBlock<'o> for Bmap {
+    fn block(request: &Request<'o, Self>) -> u64 {
+        request.body.block
+    }
+
+    fn block_size(request: &Request<'o, Self>) -> u32 {
+        request.body.block_size
+    }
+}
+
+impl<'o> ReplyBlock<'o> for Bmap {
+    fn block(reply: Reply<'o, Self>, block: u64) -> Done<'o> {
+        reply.single(&proto::BmapOut { block })
     }
 }

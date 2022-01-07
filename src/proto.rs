@@ -520,6 +520,12 @@ pub struct BmapIn {
 
 #[derive(Pod, Zeroable, Copy, Clone)]
 #[repr(C)]
+pub struct BmapOut {
+    pub block: u64,
+}
+
+#[derive(Pod, Zeroable, Copy, Clone)]
+#[repr(C)]
 pub struct IoctlIn {
     pub fh: u64,
     pub flags: u32,

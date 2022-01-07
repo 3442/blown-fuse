@@ -7,7 +7,7 @@ pub use super::{
     dir::{ReplyEntries, ReplyFound},
     entry::{RequestLink, RequestTarget},
     global::ReplyFsInfo,
-    inode::{ReplyStat, RequestForget},
+    inode::{ReplyBlock, ReplyStat, RequestBlock, RequestForget},
     open::{ReplyOpen, ReplyPermissionDenied},
     rw::ReplyAll,
     xattr::ReplyXattrRead,
@@ -168,6 +168,20 @@ impl<'o, O: Operation<'o>> Request<'o, O> {
     {
         O::source_ino(self)
     }
+
+    pub fn block(&self) -> u64
+    where
+        O: RequestBlock<'o>,
+    {
+        O::block(self)
+    }
+
+    pub fn block_size(&self) -> u32
+    where
+        O: RequestBlock<'o>,
+    {
+        O::block_size(self)
+    }
 }
 
 impl<'o, O: Operation<'o>> Reply<'o, O> {
@@ -303,5 +317,12 @@ impl<'o, O: Operation<'o>> Reply<'o, O> {
         O: ReplyXattrRead<'o>,
     {
         O::buffer_too_small(self)
+    }
+
+    pub fn block(self, block: u64) -> Done<'o>
+    where
+        O: ReplyBlock<'o>,
+    {
+        O::block(self, block)
     }
 }
