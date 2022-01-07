@@ -5,7 +5,7 @@ use crate::{
 
 pub use super::{
     dir::{ReplyEntries, ReplyFound},
-    entry::{RequestLink, RequestTarget},
+    entry::{RequestDevice, RequestLink, RequestTarget},
     global::ReplyFsInfo,
     inode::{ReplyBlock, ReplyStat, RequestBlock, RequestForget},
     open::{ReplyOpen, ReplyPermissionDenied},
@@ -153,6 +153,13 @@ impl<'o, O: Operation<'o>> Request<'o, O> {
         O: RequestForget<'o>,
     {
         O::forget_list(self)
+    }
+
+    pub fn device(&self) -> u32
+    where
+        O: RequestDevice<'o>,
+    {
+        O::device(self)
     }
 
     pub fn target(&self) -> &OsStr

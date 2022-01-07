@@ -6,11 +6,16 @@ use super::{
 use crate::{io::Mode, private_trait::Sealed, proto, Ino, Operation, Request};
 use std::ffi::{CStr, OsStr};
 
+pub enum Mknod {}
 pub enum Mkdir {}
 pub enum Unlink {}
 pub enum Rmdir {}
 pub enum Symlink {}
 pub enum Link {}
+
+pub trait RequestDevice<'o>: Operation<'o> {
+    fn device(request: &Request<'o, Self>) -> u32;
+}
 
 pub trait RequestTarget<'o>: Operation<'o> {
     fn target<'a>(request: &'a Request<'o, Self>) -> &'a OsStr;
@@ -20,11 +25,17 @@ pub trait RequestLink<'o>: Operation<'o> {
     fn source_ino(request: &Request<'o, Self>) -> Ino;
 }
 
+impl Sealed for Mknod {}
 impl Sealed for Mkdir {}
 impl Sealed for Unlink {}
 impl Sealed for Rmdir {}
 impl Sealed for Symlink {}
 impl Sealed for Link {}
+
+impl<'o> Operation<'o> for Mknod {
+    type RequestBody = (&'o proto::MknodIn, &'o CStr);
+    type ReplyState = ();
+}
 
 impl<'o> Operation<'o> for Mkdir {
     type RequestBody = (&'o proto::MkdirIn, &'o CStr);
@@ -32,12 +43,12 @@ impl<'o> Operation<'o> for Mkdir {
 }
 
 impl<'o> Operation<'o> for Unlink {
-    type RequestBody = &'o CStr; // name()
+    type RequestBody = &'o CStr;
     type ReplyState = ();
 }
 
 impl<'o> Operation<'o> for Rmdir {
-    type RequestBody = &'o CStr; // name()
+    type RequestBody = &'o CStr;
     type ReplyState = ();
 }
 
@@ -50,6 +61,34 @@ impl<'o> Operation<'o> for Link {
     type RequestBody = (&'o proto::LinkIn, &'o CStr);
     type ReplyState = ();
 }
+
+impl<'o> RequestName<'o> for Mknod {
+    fn name<'a>(request: &'a Request<'o, Self>) -> &'a OsStr {
+        let (_header, name) = request.body;
+        c_to_os(name)
+    }
+}
+
+impl<'o> RequestMode<'o> for Mknod {
+    fn mode(request: &Request<'o, Self>) -> Mode {
+        let (header, _name) = request.body;
+        Mode::from_bits_truncate(header.mode)
+    }
+
+    fn umask(request: &Request<'o, Self>) -> Mode {
+        let (header, _name) = request.body;
+        Mode::from_bits_truncate(header.umask)
+    }
+}
+
+impl<'o> RequestDevice<'o> for Mknod {
+    fn device(request: &Request<'o, Self>) -> u32 {
+        let (header, _name) = request.body;
+        header.device
+    }
+}
+
+impl<'o> ReplyKnown<'o> for Mknod {}
 
 impl<'o> RequestName<'o> for Mkdir {
     fn name<'a>(request: &'a Request<'o, Self>) -> &'a OsStr {

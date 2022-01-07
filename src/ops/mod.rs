@@ -12,7 +12,7 @@ use bytemuck::{bytes_of, Pod};
 pub mod traits;
 
 pub use dir::{BufferedReaddir, Lookup, Readdir};
-pub use entry::{Link, Mkdir, Rmdir, Symlink, Unlink};
+pub use entry::{Link, Mkdir, Mknod, Rmdir, Symlink, Unlink};
 pub use global::{Init, Statfs};
 pub use inode::{Bmap, Forget, Getattr};
 pub use open::{Access, Create, Open, Opendir, Release, Releasedir};
