@@ -1,6 +1,6 @@
 use crate::{
     io::{AccessFlags, Known, Mode, OpenFlags, Stat},
-    proto,
+    proto::{self, OpenOutFlags},
     sealed::Sealed,
     util::OutputChain,
     Done, Errno, Operation, Reply, Request, Ttl,
@@ -22,12 +22,12 @@ pub enum Releasedir {}
 pub enum Access {}
 pub enum Create {}
 
-pub trait ReplyOpen<'o>: Operation<'o, ReplyState = proto::OpenOutFlags> {
+pub trait ReplyOpen<'o>: Operation<'o, ReplyState = OpenOutFlags> {
     fn ok_with_handle(reply: Reply<'o, Self>, handle: u64) -> Done<'o>
     where
         Self: ReplyOk<'o>,
     {
-        let open_flags = reply.state.bits();
+        let open_flags = open_flags_bits(reply.state);
 
         reply.single(&proto::OpenOut {
             fh: handle,
@@ -51,7 +51,7 @@ pub trait ReplyOpen<'o>: Operation<'o, ReplyState = proto::OpenOutFlags> {
         let entry = make_entry((known.inode().ino(), ttl), (attrs, attrs_ttl));
         let open = proto::OpenOut {
             fh: handle,
-            open_flags: reply.state.bits(),
+            open_flags: open_flags_bits(reply.state),
             padding: Default::default(),
         };
 
@@ -62,7 +62,15 @@ pub trait ReplyOpen<'o>: Operation<'o, ReplyState = proto::OpenOutFlags> {
     }
 
     fn force_direct_io(reply: &mut Reply<'o, Self>) {
-        reply.state |= proto::OpenOutFlags::DIRECT_IO;
+        reply.state |= OpenOutFlags::DIRECT_IO;
+    }
+
+    fn non_seekable(reply: &mut Reply<'o, Self>) {
+        reply.state |= OpenOutFlags::NONSEEKABLE;
+    }
+
+    fn is_stream(reply: &mut Reply<'o, Self>) {
+        reply.state |= OpenOutFlags::STREAM;
     }
 }
 
@@ -81,7 +89,7 @@ impl Sealed for Create {}
 
 impl<'o> Operation<'o> for Open {
     type RequestBody = &'o proto::OpenIn;
-    type ReplyState = proto::OpenOutFlags;
+    type ReplyState = OpenOutFlags;
 }
 
 impl<'o> Operation<'o> for Release {
@@ -91,7 +99,7 @@ impl<'o> Operation<'o> for Release {
 
 impl<'o> Operation<'o> for Opendir {
     type RequestBody = &'o proto::OpendirIn;
-    type ReplyState = proto::OpenOutFlags;
+    type ReplyState = OpenOutFlags;
 }
 
 impl<'o> Operation<'o> for Releasedir {
@@ -106,7 +114,7 @@ impl<'o> Operation<'o> for Access {
 
 impl<'o> Operation<'o> for Create {
     type RequestBody = (&'o proto::CreateIn, &'o CStr);
-    type ReplyState = proto::OpenOutFlags;
+    type ReplyState = OpenOutFlags;
 }
 
 impl<'o> RequestFlags<'o> for Open {
@@ -163,9 +171,9 @@ impl<'o> ReplyOk<'o> for Access {}
 
 impl<'o> ReplyPermissionDenied<'o> for Access {}
 
-impl<'o, O: ReplyOpen<'o>> FromRequest<'o, O> for proto::OpenOutFlags {
+impl<'o, O: ReplyOpen<'o>> FromRequest<'o, O> for OpenOutFlags {
     fn from_request(_request: &Request<'o, O>) -> Self {
-        proto::OpenOutFlags::empty()
+        OpenOutFlags::empty()
     }
 }
 
@@ -205,3 +213,7 @@ impl<'o> ReplyKnown<'o> for Create {
 
 impl<'o> ReplyOpen<'o> for Create {}
 impl<'o> ReplyPermissionDenied<'o> for Create {}
+
+fn open_flags_bits(flags: OpenOutFlags) -> u32 {
+    (flags & OpenOutFlags::KEEP_CACHE & OpenOutFlags::CACHE_DIR).bits()
+}

@@ -248,6 +248,20 @@ impl<'o, O: Operation<'o>> Reply<'o, O> {
         O::force_direct_io(self)
     }
 
+    pub fn non_seekable(&mut self)
+    where
+        O: ReplyOpen<'o>,
+    {
+        O::non_seekable(self)
+    }
+
+    pub fn is_stream(&mut self)
+    where
+        O: ReplyOpen<'o>,
+    {
+        O::is_stream(self)
+    }
+
     pub fn not_found_for(self, ttl: Ttl) -> Done<'o>
     where
         O: ReplyFound<'o>,
