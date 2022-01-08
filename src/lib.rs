@@ -14,6 +14,8 @@ use std::{
 };
 
 pub use self::error::{FuseError, FuseResult};
+
+#[doc(no_inline)]
 pub use nix::{self, errno::Errno};
 
 pub mod error;

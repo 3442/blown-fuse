@@ -1,5 +1,5 @@
 use bytemuck::Zeroable;
-use nix::{errno::Errno, sys::stat::SFlag};
+use nix::sys::stat::SFlag;
 
 use std::{
     convert::Infallible,
@@ -9,7 +9,7 @@ use std::{
 };
 
 use super::{Done, Operation, Reply, Request};
-use crate::{proto, FuseResult, Ino, Timestamp, Ttl};
+use crate::{proto, Errno, FuseResult, Ino, Timestamp, Ttl};
 
 #[doc(no_inline)]
 pub use nix::{

@@ -22,26 +22,19 @@ use std::{
     time::{Duration, UNIX_EPOCH},
 };
 
-use nix::{
-    dir::Type,
-    errno::Errno,
-    sys::mman::{mmap, MapFlags, ProtFlags},
-    sys::stat::Mode,
-    unistd::{Gid, Uid},
-};
-
 use blown_fuse::{
-    io::{Attrs, Entry, FsInfo, Known, Stat},
+    io::{Attrs, Entry, EntryType, FsInfo, Gid, Known, Mode, Stat, Uid},
     mount::{mount_sync, Options},
     ops,
     session::{Dispatch, Start},
-    Done, FuseResult, Ino, Op, Ttl,
+    Done, Errno, FuseResult, Ino, Op, Ttl,
 };
 
 use bytemuck::{cast_slice, from_bytes, try_from_bytes};
 use bytemuck_derive::{Pod, Zeroable};
 use clap::{App, Arg};
 use futures_util::stream::{self, Stream, StreamExt, TryStreamExt};
+use nix::sys::mman::{mmap, MapFlags, ProtFlags};
 use smallvec::SmallVec;
 use tokio::{self, runtime::Runtime};
 use uuid::Uuid;
@@ -381,7 +374,7 @@ impl Ext2 {
         let (mut reply, inode) = reply.and_then(self.inode(ino))?;
 
         let resolved = Resolved { ino, inode };
-        if resolved.inode_type() != Type::Symlink {
+        if resolved.inode_type() != EntryType::Symlink {
             return reply.invalid_argument();
         }
 
@@ -432,20 +425,20 @@ impl Stat for Resolved {
         self.ino
     }
 
-    fn inode_type(&self) -> Type {
+    fn inode_type(&self) -> EntryType {
         let inode_type = self.inode.i_mode >> 12;
         match inode_type {
-            0x01 => Type::Fifo,
-            0x02 => Type::CharacterDevice,
-            0x04 => Type::Directory,
-            0x06 => Type::BlockDevice,
-            0x08 => Type::File,
-            0x0A => Type::Symlink,
-            0x0C => Type::Socket,
+            0x01 => EntryType::Fifo,
+            0x02 => EntryType::CharacterDevice,
+            0x04 => EntryType::Directory,
+            0x06 => EntryType::BlockDevice,
+            0x08 => EntryType::File,
+            0x0A => EntryType::Symlink,
+            0x0C => EntryType::Socket,
 
             _ => {
                 log::error!("Inode {} has invalid type {:x}", self.ino, inode_type);
-                Type::File
+                EntryType::File
             }
         }
     }
