@@ -1,7 +1,11 @@
 use crate::{
-    io::{Entry, FsInfo, Interruptible, Known, Mode, Stat},
-    Done, Ino, Operation, Reply, Request, Ttl,
+    io::{Entry, FsInfo, Ino, Interruptible, Known, Mode, Stat, Ttl},
+    Done, Operation, Reply, Request,
 };
+
+use super::make_entry;
+use bytes::BufMut;
+use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
 
 pub use super::{
     dir::{ReplyEntries, ReplyFound},
@@ -12,10 +16,6 @@ pub use super::{
     rw::ReplyAll,
     xattr::ReplyXattrRead,
 };
-
-use super::make_entry;
-use bytes::BufMut;
-use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
 
 pub trait RequestName<'o>: Operation<'o> {
     fn name<'a>(request: &'a Request<'o, Self>) -> &'a OsStr;

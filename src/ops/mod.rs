@@ -3,7 +3,14 @@ use std::{
     os::unix::ffi::OsStrExt,
 };
 
-use crate::{proto, sealed::Sealed, util::OutputChain, Done, Ino, Operation, Reply, Request, Ttl};
+use crate::{
+    io::{Ino, Ttl},
+    proto,
+    sealed::Sealed,
+    util::OutputChain,
+    Done, Operation, Reply, Request,
+};
+
 use bytemuck::{bytes_of, Pod};
 
 pub mod traits;
@@ -73,10 +80,10 @@ fn make_entry(
     proto::EntryOut {
         nodeid: ino,
         generation: 0, //TODO
-        entry_valid: entry_ttl.seconds,
-        attr_valid: attr_ttl.seconds,
-        entry_valid_nsec: entry_ttl.nanoseconds,
-        attr_valid_nsec: attr_ttl.nanoseconds,
+        entry_valid: entry_ttl.seconds(),
+        attr_valid: attr_ttl.seconds(),
+        entry_valid_nsec: entry_ttl.nanoseconds(),
+        attr_valid_nsec: attr_ttl.nanoseconds(),
         attr: attrs,
     }
 }

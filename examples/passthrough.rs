@@ -11,18 +11,21 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use blown_fuse::{
-    io::{Attrs, Entry, EntryType, FsyncFlags, Gid, Known, Mode, OpenFlags, Stat, Uid},
-    mount::mount_sync,
-    ops,
-    session::{Dispatch, Start},
-    Done, Errno, FuseResult, Ino, Op, Timestamp, Ttl,
-};
-
 use tokio::{
     fs::{self, DirEntry, File, OpenOptions},
     io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
     runtime::Runtime,
+};
+
+use blown_fuse::{
+    io::{
+        Attrs, Entry, EntryType, FsyncFlags, Gid, Ino, Known, Mode, OpenFlags, Stat, Timestamp,
+        Ttl, Uid,
+    },
+    mount::mount_sync,
+    ops,
+    session::{Dispatch, Start},
+    Done, Errno, FuseResult, Op,
 };
 
 use clap::{App, Arg};

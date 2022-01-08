@@ -1,12 +1,11 @@
 // Based on libfuse/include/fuse_kernel.h
 
+use crate::{util::display_or, FuseError, FuseResult};
 use bitflags::bitflags;
 use bytemuck::{self, try_cast_slice, try_from_bytes, Pod};
 use bytemuck_derive::{Pod, Zeroable};
 use num_enum::TryFromPrimitive;
 use std::{convert::TryFrom, ffi::CStr, fmt};
-
-use crate::{util::display_or, FuseError, FuseResult};
 
 pub const ROOT_ID: u64 = 1;
 pub const MAJOR_VERSION: u32 = 7;

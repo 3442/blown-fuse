@@ -1,5 +1,10 @@
 use super::traits::{ReplyOk, RequestHandle};
-use crate::{io::Stat, proto, sealed::Sealed, Done, Ino, Operation, Reply, Request};
+use crate::{
+    io::{Ino, Stat},
+    proto,
+    sealed::Sealed,
+    Done, Operation, Reply, Request,
+};
 
 pub enum Forget {}
 pub enum Getattr {}
@@ -95,8 +100,8 @@ impl<'o> ReplyStat<'o> for Getattr {
         let attrs = attrs.finish(inode);
 
         reply.single(&proto::AttrOut {
-            attr_valid: ttl.seconds,
-            attr_valid_nsec: ttl.nanoseconds,
+            attr_valid: ttl.seconds(),
+            attr_valid_nsec: ttl.nanoseconds(),
             dummy: Default::default(),
             attr: attrs,
         })

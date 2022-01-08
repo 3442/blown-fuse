@@ -19,21 +19,17 @@ use tokio::{
     sync::{broadcast, OwnedSemaphorePermit, Semaphore},
 };
 
-use bytemuck::bytes_of;
-use smallvec::SmallVec;
-
 use crate::{
     error::MountError,
     mount::unmount_sync,
+    ops::{self, FromRequest},
     proto::{self, InHeader, Structured},
     util::{page_size, DumbFd, OutputChain},
-    Errno, FuseError, FuseResult,
+    Done, Errno, FuseError, FuseResult, Op, Operation, Reply, Request,
 };
 
-use super::{
-    ops::{self, FromRequest},
-    Done, Op, Operation, Reply, Request,
-};
+use bytemuck::bytes_of;
+use smallvec::SmallVec;
 
 pub struct Start {
     session_fd: DumbFd,

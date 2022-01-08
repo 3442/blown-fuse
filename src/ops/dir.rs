@@ -6,9 +6,10 @@ use std::{
 };
 
 use crate::{
-    io::{Entry, EntryType, Interruptible, Known, Stat},
+    io::{Entry, EntryType, Ino, Interruptible, Known, Stat, Ttl},
+    proto,
     sealed::Sealed,
-    Done, Operation, Reply, Request,
+    Done, Errno, Operation, Reply, Request,
 };
 
 use super::{
@@ -20,7 +21,6 @@ use super::{
     FromRequest,
 };
 
-use crate::{proto, Errno, Ino, Ttl};
 use bytemuck::{bytes_of, Zeroable};
 use bytes::BufMut;
 use nix::sys::stat::SFlag;

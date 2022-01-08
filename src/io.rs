@@ -6,10 +6,11 @@ use std::{
     ffi::OsStr,
     future::Future,
     ops::{ControlFlow, FromResidual, Try},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use super::{Done, Operation, Reply, Request};
-use crate::{proto, Errno, FuseResult, Ino, Timestamp, Ttl};
+use crate::{proto, Errno, FuseResult};
 
 #[doc(no_inline)]
 pub use nix::{
@@ -20,6 +21,21 @@ pub use nix::{
 };
 
 pub use proto::FsyncFlags;
+
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub struct Ino(pub u64);
+
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub struct Ttl {
+    seconds: u64,
+    nanoseconds: u32,
+}
+
+#[derive(Copy, Clone, Default, Eq, PartialEq)]
+pub struct Timestamp {
+    seconds: i64,
+    nanoseconds: u32,
+}
 
 pub enum Interruptible<'o, O: Operation<'o>, T> {
     Completed(Reply<'o, O>, T),
@@ -57,6 +73,82 @@ pub struct Entry<'a, K> {
 
 #[derive(Copy, Clone)]
 pub struct FsInfo(proto::StatfsOut);
+
+impl Ino {
+    pub const NULL: Self = Ino(0);
+
+    pub const ROOT: Self = Ino(proto::ROOT_ID);
+
+    pub fn as_raw(self) -> u64 {
+        self.0
+    }
+}
+
+impl std::fmt::Display for Ino {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}", self.0)
+    }
+}
+
+impl Ttl {
+    pub const NULL: Self = Ttl {
+        seconds: 0,
+        nanoseconds: 0,
+    };
+
+    pub const MAX: Self = Ttl {
+        seconds: u64::MAX,
+        nanoseconds: u32::MAX,
+    };
+
+    pub fn new(seconds: u64, nanoseconds: u32) -> Ttl {
+        assert!(nanoseconds < 1_000_000_000);
+
+        Ttl {
+            seconds,
+            nanoseconds,
+        }
+    }
+
+    pub fn seconds(self) -> u64 {
+        self.seconds
+    }
+
+    pub fn nanoseconds(self) -> u32 {
+        self.nanoseconds
+    }
+}
+
+impl Timestamp {
+    pub fn new(seconds: i64, nanoseconds: u32) -> Self {
+        Timestamp {
+            seconds,
+            nanoseconds,
+        }
+    }
+}
+
+impl From<SystemTime> for Timestamp {
+    fn from(time: SystemTime) -> Self {
+        let (seconds, nanoseconds) = match time.duration_since(UNIX_EPOCH) {
+            Ok(duration) => {
+                let secs = duration.as_secs().try_into().unwrap();
+                (secs, duration.subsec_nanos())
+            }
+
+            Err(before_epoch) => {
+                let duration = before_epoch.duration();
+                let secs = -i64::try_from(duration.as_secs()).unwrap();
+                (secs, duration.subsec_nanos())
+            }
+        };
+
+        Timestamp {
+            seconds,
+            nanoseconds,
+        }
+    }
+}
 
 impl<'o, E> From<Failed<'o, E>> for Done<'o> {
     fn from(failed: Failed<'o, E>) -> Done<'o> {

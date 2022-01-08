@@ -23,11 +23,11 @@ use std::{
 };
 
 use blown_fuse::{
-    io::{Attrs, Entry, EntryType, FsInfo, Gid, Known, Mode, Stat, Uid},
+    io::{Attrs, Entry, EntryType, FsInfo, Gid, Ino, Known, Mode, Stat, Ttl, Uid},
     mount::{mount_sync, Options},
     ops,
     session::{Dispatch, Start},
-    Done, Errno, FuseResult, Ino, Op, Ttl,
+    Done, Errno, FuseResult, Op,
 };
 
 use bytemuck::{cast_slice, from_bytes, try_from_bytes};

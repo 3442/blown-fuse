@@ -1,9 +1,9 @@
 use crate::{
-    io::{AccessFlags, Known, Mode, OpenFlags, Stat},
+    io::{AccessFlags, Known, Mode, OpenFlags, Stat, Ttl},
     proto::{self, OpenOutFlags},
     sealed::Sealed,
     util::OutputChain,
-    Done, Errno, Operation, Reply, Request, Ttl,
+    Done, Errno, Operation, Reply, Request,
 };
 
 use super::{
