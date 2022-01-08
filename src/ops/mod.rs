@@ -3,10 +3,7 @@ use std::{
     os::unix::ffi::OsStrExt,
 };
 
-use crate::{
-    private_trait::Sealed, proto, util::OutputChain, Done, Ino, Operation, Reply, Request, Ttl,
-};
-
+use crate::{proto, sealed::Sealed, util::OutputChain, Done, Ino, Operation, Reply, Request, Ttl};
 use bytemuck::{bytes_of, Pod};
 
 pub mod traits;

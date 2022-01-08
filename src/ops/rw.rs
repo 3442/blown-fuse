@@ -5,7 +5,7 @@ use super::{
     FromRequest,
 };
 
-use crate::{io::FsyncFlags, private_trait::Sealed, proto, Done, Operation, Reply, Request};
+use crate::{io::FsyncFlags, proto, sealed::Sealed, Done, Operation, Reply, Request};
 
 pub enum Readlink {}
 pub enum Read {}

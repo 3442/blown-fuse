@@ -25,7 +25,7 @@ pub mod session;
 mod proto;
 mod util;
 
-pub trait Operation<'o>: private_trait::Sealed + Sized {
+pub trait Operation<'o>: sealed::Sealed + Sized {
     type RequestBody: crate::proto::Structured<'o>;
     type ReplyState;
 }
@@ -161,6 +161,6 @@ impl From<SystemTime> for Timestamp {
     }
 }
 
-mod private_trait {
+mod sealed {
     pub trait Sealed {}
 }

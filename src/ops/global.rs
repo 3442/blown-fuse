@@ -1,5 +1,5 @@
 use super::traits::ReplyOk;
-use crate::{io::FsInfo, private_trait::Sealed, proto, util::page_size, Done, Operation, Reply};
+use crate::{io::FsInfo, proto, sealed::Sealed, util::page_size, Done, Operation, Reply};
 
 pub enum Init {}
 pub enum Statfs {}

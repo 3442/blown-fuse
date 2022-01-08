@@ -1,7 +1,7 @@
 use crate::{
     io::{AccessFlags, Known, Mode, OpenFlags, Stat},
-    private_trait::Sealed,
     proto,
+    sealed::Sealed,
     util::OutputChain,
     Done, Errno, Operation, Reply, Request, Ttl,
 };

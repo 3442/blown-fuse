@@ -1,4 +1,4 @@
-use crate::proto;
+use crate::{proto, sealed::Sealed};
 use std::marker::PhantomData;
 
 pub mod io;
@@ -6,11 +6,7 @@ pub mod mount;
 pub mod ops;
 pub mod session;
 
-mod private_trait {
-    pub trait Sealed {}
-}
-
-pub trait Operation<'o>: private_trait::Sealed + Sized {
+pub trait Operation<'o>: Sealed + Sized {
     type RequestBody: crate::proto::Structured<'o>;
     type ReplyState;
 }

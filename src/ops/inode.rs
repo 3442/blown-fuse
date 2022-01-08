@@ -1,5 +1,5 @@
 use super::traits::{ReplyOk, RequestHandle};
-use crate::{io::Stat, private_trait::Sealed, proto, Done, Ino, Operation, Reply, Request};
+use crate::{io::Stat, proto, sealed::Sealed, Done, Ino, Operation, Reply, Request};
 
 pub enum Forget {}
 pub enum Getattr {}

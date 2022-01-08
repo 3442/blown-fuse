@@ -7,7 +7,7 @@ use std::{
 
 use crate::{
     io::{Entry, EntryType, Interruptible, Known, Stat},
-    private_trait::Sealed,
+    sealed::Sealed,
     Done, Operation, Reply, Request,
 };
 

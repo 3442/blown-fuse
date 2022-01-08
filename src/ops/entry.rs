@@ -3,7 +3,7 @@ use super::{
     traits::{ReplyKnown, ReplyOk, RequestMode, RequestName},
 };
 
-use crate::{io::Mode, private_trait::Sealed, proto, Ino, Operation, Request};
+use crate::{io::Mode, proto, sealed::Sealed, Ino, Operation, Request};
 use std::ffi::{CStr, OsStr};
 
 pub enum Mknod {}

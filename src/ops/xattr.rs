@@ -1,12 +1,9 @@
-use crate::{
-    private_trait::Sealed, proto, util::OutputChain, Done, Errno, Operation, Reply, Request,
-};
-
 use super::{
     c_to_os,
     traits::{ReplyGather, ReplyNotFound, ReplyOk, RequestData, RequestName, RequestSize},
 };
 
+use crate::{proto, sealed::Sealed, util::OutputChain, Done, Errno, Operation, Reply, Request};
 use std::ffi::{CStr, OsStr};
 
 pub enum Setxattr {}
