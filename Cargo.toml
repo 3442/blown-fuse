@@ -1,6 +1,6 @@
 [package]
 name = "blown-fuse"
-version = "0.2.1"
+version = "0.3.0"
 authors = ["Alejandro Soto <alejandro@34project.org>"]
 edition = "2021"
 description = "Async filesystem in userspace (FUSE) daemon library"
@@ -17,13 +17,13 @@ bytemuck_derive = "1.0.1"
 bytes = "1.1.0"
 log = "0.4.14"
 nix = "0.23.1"
-num_enum = "0.5.5"
+num_enum = "0.5.6"
 smallvec = "1.7.0"
 thiserror = "1.0.30"
 tokio = { version = "1.15.0", features = ["rt", "net", "macros", "sync"] }
 
 [dev-dependencies]
-clap = "2.34.0"
+clap = "3.0.5"
 env_logger = "0.9.0"
 futures-util = "0.3.19"
 tokio = { version = "1.15.0", features = ["fs", "io-util", "rt-multi-thread", "signal"] }
